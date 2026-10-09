@@ -1,66 +1,140 @@
-# LEEQ — Approved Camera Flight
+# LEEQ — Particle Camera Flight
 
-An interactive 3D personal homepage using the user-approved Blender `camera_flight` assets. The approved 15-second camera trajectory is the source of truth, not the previous programmatic spline. There is no astronaut anywhere in the deployable scene.
+A personal homepage built with Vite, Three.js and GSAP around the approved Blender camera flight. The hero combines oversized outline/filled chapter titles with four sculptures rendered entirely as particles.
 
-## Run
+## Run locally
 
 ```powershell
 cd 'G:\Dev\个人主页'
-npm install
+npm ci
 npm run dev
 ```
 
-The visible landing page contains **only the four oversized chapter titles**. All captions, biography paragraphs, top labels, footer text, and visible quality/motion buttons have been removed. Click the large title, use the right-side arrows, scroll, swipe, or use arrow keys to move. Open the icon-only menu for large-title chapter selection and icon links to GitHub / source credits. The flight sequence remains **sculpture → NASA 70m antenna → Curiosity rover → Apollo Lunar Module**, with 5 seconds of Blender-authored camera movement per leg. Returning follows the same frames backwards; the world never reloads.
+Use `npm ci` when setting up a fresh checkout. To inspect the production build:
 
-## Approved source files
+```powershell
+npm test
+npm run build
+npm run preview
+```
 
-The original source ZIP and video remain untouched in `模型/camera_flight/`: `camera_flight_additional_web.zip`, `camera_flight_additional_data.zip`, and `camera_preview_additional.mp4`. The native Blender project is preserved in `camera_flight_additional_native.zip`.
+The current verification environment uses Node.js 24. The build has relative asset URLs (`base: './'`) and writes to `dist/`.
 
-Only their derived web representations are published:
+## Navigation and content
 
-| Asset | Usage |
+The sequence is **sculpture → NASA 70m antenna → Curiosity rover → Apollo Lunar Module**. Every complete adjacent camera leg lasts five seconds; reverse travel follows the same exported route backwards. A direct menu jump across multiple chapters takes five seconds per crossed leg.
+
+| Action | Result |
 | --- | --- |
-| `reference/generated-camera-source/approved-models.glb` | **Ignored, build-time only** compact GLB; sampled locally, never downloaded or rendered in the browser |
-| `public/scene/camera-path.json` | Original 361 camera positions/quaternions at 24 FPS, 15 seconds |
-| `public/scene/surface-points.bin` | 22,000 actual, visible sculpture particles per model (world-space position, normal, color tone); this replaces any solid geometry |
-| `public/scene/model-bounds.json` | Exact model centers for portrait-mode framing |
-| `public/scene/ASSET_CREDITS.txt` | Attribution for the NASA-source models |
+| Scroll or swipe vertically | Move one chapter; repeated momentum does not queue extra chapters |
+| Right-side arrows | Previous/next chapter, bounded at the ends |
+| Background Arrow/Page keys or Space | Chapter navigation |
+| Space/Enter on a focused control | That control's native action |
+| First two large titles | Next chapter |
+| Work title | Open the work panel describing this camera-flight study |
+| Contact title | Open the contact panel with the existing GitHub profile |
+| Menu | Choose a chapter, reduce motion, change High/Eco quality, open GitHub or asset credits |
+| Escape | Close a dismissible panel and restore focus |
+| Background M / Q | Toggle motion / quality |
 
-To regenerate from the original ZIP sources:
+The successful hero retains only the four original two-line titles. Supporting content appears in panels. The work and contact destinations use the existing `Corden404` GitHub identity; project-specific repository URLs and email addresses are not fabricated.
+
+## Approved assets
+
+Original ZIP, BLEND and video sources remain under ignored `模型/camera_flight/`. The browser downloads only derived scene data.
+
+| File | Purpose |
+| --- | --- |
+| `reference/generated-camera-source/approved-models.glb` | Ignored offline geometry for sampling; never rendered or downloaded by the webpage |
+| `public/scene/camera-path.json` | Unmodified 361 camera samples at 24 FPS across 15 seconds |
+| `public/scene/surface-points.bin` | Four poses of 22,000 sampled points: position, normal and regional tone |
+| `public/scene/model-bounds.json` | Original model centers and bounds |
+| `public/scene/ASSET_CREDITS.txt` | Model attribution and usage notes |
+
+To regenerate from the preserved source archives:
 
 ```powershell
 npm run prepare:scene
-npm run test:assets
-npm run test:flight
+npm test
 npm run build
 ```
 
-Desktop uses the exported camera poses directly, with simple quaternion slerp between samples and no second easing. Portrait devices apply a small smooth framing adjustment near camera docks so the sculptures remain visible in a narrow viewport. During travel, the camera retains the original Blender spatial route.
+To rebake only particle sampling from the existing ignored GLB:
 
-The original model meshes and textures are not redistributed. The public website ships only baked surface-particle positions, not the offline GLB sampling asset. The abstract sculpture's provenance still needs to be checked before any publication. NASA-origin model credits do not imply NASA endorsement. Review the credits and relevant usage guidance before deployment.
+```powershell
+node scripts/bake-stage-points.mjs
+npm run test:assets
+```
 
-## Artistic direction and performance
+The baker allocates the exact point budget across connected surface components. Bounded weighting gives small and thin structures more representation. Seeded stratified/Halton sampling, interpolated transformed normals and coherent component/material tones preserve repeatability. Rebaking points does not rewrite the approved camera or bounds.
 
-**The website contains no visible solid 3D mesh.** The four approved Blender models are used strictly as offline geometry for GPU particle sampling. One continuous GPU point cloud (22,000 visible particles) now **scatters, spirals, travels, then reassembles** into the next approved model when the visitor navigates. Each of the four samples uses Morton-ordered spatial correspondence with a shared shuffle, staggered release and a timed turbulence envelope. During the 5-second camera flight, the disintegrating cloud crosses the physical camera's field of view; at both dock endpoints it is precisely centered on the original approved model position with the existing 14% desktop / 10% portrait enlargement. Reversing a chapter plays this choreography backwards. The restrained palette remains silver, muted blue/gray, soft champagne and rare lilac. The original 361-frame Blender camera route stays exactly as authored. A set of **three independent GPU particle layers** forms the environment: 8,200 distant galactic-haze points, 6,900 free-floating midground motes, and 320 soft foreground bokeh particles. Their positions are generated inside actual Blender camera viewing volumes, then remain independent in world space. They drift continuously and move more energetically during each flight without ever becoming a model. The palette remains understated silver, cool gray-blue, and pale champagne; there is no generated background picture or video.
+## Composition and artistic controls
 
-**Sculpture display scale:** Each point-cloud sculpture now appears about **14% larger on widescreen desktops** and **10% larger in portrait/mobile layouts**, scaled around its own world-space bounding-box center. To adjust, change `setViewportScale()` in `src/particles/ApprovedParticleFields.js`. The actual GLSL transformation is in `src/particles/sculpture.vert.glsl`. On narrower non-portrait windows, `src/camera/ApprovedCamera.js` expands the vertical field of view to preserve the Blender 16:9 horizontal composition without cutting off the models; the original 361 camera positions/quaternions remain unchanged. The separate atmospheric particles are never scaled with the sculptures.
+The runtime measures the app rectangle and derives one continuous portrait weight from its aspect ratio. Titles, camera framing and sculpture scale share that weight. There is no abrupt 759/760-pixel camera switch. Wide viewports use the original camera positions/quaternions; portrait dock adjustments fade away during travel.
 
-Rendering automatically defaults to ECO on low-memory or coarse-pointer devices. Hidden keyboard shortcuts allow manual toggling: **Q** = HIGH/ECO particle density and resolution; **M** = motion on/off, including when the OS requests reduced motion. Chapter copy is edited in `src/approved-main.js`.
+The sculptures use one morphing `THREE.Points` draw object with 22,000 points in High and 70% of that draw range in Eco. No solid mesh is added. The three independent atmospheric layers contain 8,200 distant points, 6,900 midground motes and 320 foreground particles before quality reduction.
 
-`npm run build` emits the Github Pages-compatible `dist/` directory. Only publish the build after you review the model licenses; keep the ZIP and BLEND sources under ignored `模型/` and `reference/`.
+Static forms use directional key/fill/rim lighting, signed front/back attenuation, coherent surface tone, and a small set of brighter points. Active fragment shaders operate in linear working color, then apply the renderer's tone mapping and sRGB conversion. Point diameters account for viewport height, projection and depth.
 
-## Project map
+Each of the three legs has its own scatter, swirl direction, bend, lift and camera-focus envelope. Particle paths depend on chapter phase, so reverse travel retraces the same shapes. Motion decays before docking and exact integer story positions use the baked poses with the existing display scale (1.14 on wide layouts, smoothly approaching 1.10 in portrait). Idle motion affects light subtly rather than distorting the model.
 
-- `scripts/prepare-camera-scene.py`: source ZIP → **ignored offline sampling GLB**, camera JSON, credits; never exposes the solid model under `public/`.
-- `scripts/bake-stage-points.mjs`: GLB → world-space surface point data.
-- `src/camera/ApprovedCamera.js`: samples exact Blender frames.
-- `src/particles/ApprovedParticleFields.js`: pure point-cloud sculpture draw calls and independent ambient particle shaders.
-- `src/particles/MorphSculpture.js`: one continuous 4-pose spatially matched GPU sculpture with dynamic camera-facing scatter/reassembly, efficient High/ECO draw ranges.
-- `src/particles/sculpture-morph.vert.glsl`: staggered particle break-up, vortex, moving scattering center, reassembly and exact endpoint positions.
-- `src/particles/sculpture.frag.glsl`: restrained per-particle illumination reused by the morph engine.
-- `reference/gpu-morph-restored-v2/sequence.jpg`: actual browser snapshots at 0%, 20%, 40%, 56%, 77%, and 100% of the first flight. Previous non-morph source is retained for rollback.
-- `src/particles/sculpture.vert.glsl` and `sculpture.frag.glsl`: world-space GPU dots, animated point motion, optical glow and subtle color mixing.
-- `src/approved-main.js`: real-time scene, navigation and text.
-- `src/approved.css`: responsive cinematic UI.
+| What to adjust | Active location |
+| --- | --- |
+| Chapter title text and panel content | `src/approved-main.js` |
+| Title sizing, position and continuous layout limits | `src/layout/viewport.js` |
+| Fonts, line proportions, spacing, grain and panel styling | `src/approved.css` |
+| Dock framing and camera interpolation | `src/camera/ApprovedCamera.js` |
+| Per-leg envelopes, palette and display scale | `src/particles/art-direction.js` |
+| Sculpture uniforms, pose alignment and draw range | `src/particles/MorphSculpture.js` |
+| Sculpture lighting, particle size and transit geometry | `src/particles/sculpture-morph.vert.glsl` |
+| Particle core, halo and final output color | `src/particles/sculpture.frag.glsl` |
+| Independent ambient field | `src/particles/ApprovedParticleFields.js` |
+| Offline sampling weights and distribution | `scripts/point-sampling.mjs` |
 
-The older V4/V5 procedural project modules remain in the repository for reversible rollback, but are no longer the running page.
+## Accessibility, loading and rendering
+
+Menus and panels contain keyboard focus, mark the background inert, and restore focus when closed. Controls have visible focus treatment and touch-sized hit areas. Native button key activation is not intercepted by global navigation.
+
+System reduced-motion changes apply live until the visitor chooses an explicit override. Reduced-motion mode moves immediately to the destination and renders on demand. Frozen captures, hidden documents and open panels stop continuous scene rendering. Low-memory or coarse-pointer devices start in Eco; the menu exposes both display preferences.
+
+A failed asset request, WebGL startup failure, a 20-second load timeout or a lost WebGL context opens a visible recovery panel with Retry and the real GitHub link. Retry after context loss replaces the failed canvas before initializing a new renderer. Obsolete asynchronous loads cannot reactivate a failed scene; late particle resources are disposed. Their underlying requests may still finish because the current factories do not accept an AbortSignal.
+
+If the application module fails to load, the static HTML retains the identity, GitHub destination and reload action.
+
+## Verification and deterministic inspection
+
+```powershell
+npm run test:unit
+npm run test:assets
+npm run test:flight
+npm test
+npm run build
+```
+
+The unit suites cover bounded/reversible navigation and wheel intent, native-key exclusions, viewport continuity and original camera poses, deterministic transit envelopes, exact sampling budgets and normalized interpolated normals. The asset and flight checks validate the deployable data contract and authored camera.
+
+For reproducible visual inspection:
+
+- `/?debug=1` enables the diagnostic interface.
+- `/?capture=0&captureTime=4` freezes the home dock.
+- `/?capture=0.5&captureTime=4` freezes the midpoint of the first leg.
+- Use `capture=1`, `2` or `3` for the other docks.
+- With a capture query and no explicit time, the frozen time is zero.
+- `window.__LEEQ_DEBUG` exposes readiness, story/target, camera, point counts, layout, renderer info, frame count, `goTo()` and `seek()`.
+
+Inspect actual desktop and phone renders when changing light, size or composition. A passing build does not establish visual quality or performance on every device. Local animation callback timings are not field Core Web Vitals or GPU timings.
+
+## Project map and source preservation
+
+- `index.html`: metadata, one font stylesheet request and static fallback.
+- `src/approved-main.js`: current application entry, render lifecycle and input integration.
+- `src/interaction/Navigation.js`: pure chapter and gesture state.
+- `src/ui/overlays.js`: modal lifecycle and focus handling.
+- `scripts/prepare-camera-scene.py`: source archives to ignored GLB and derived metadata.
+- `scripts/bake-stage-points.mjs`: offline GLB to the public point binary.
+- `tests/`: regression suites using the Node built-in test runner.
+- `vite.config.js`: relative build paths and separate stable Three/GSAP vendor chunks.
+
+Older procedural and non-morph modules remain for reversible rollback and are not the active page. Original archives, internal references, build output and installed dependencies remain ignored by Git.
+
+Model credits and existing source-usage notes remain in `public/scene/ASSET_CREDITS.txt`. The abstract sculpture's provenance still needs review before publication; NASA-source attribution does not imply endorsement.

@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "npm run test:unit && npm run test:assets && npm run test:flight",
+    "test:unit": "node --test tests/*.test.mjs",
     "prepare:scene": "python scripts/prepare-camera-scene.py && node scripts/bake-stage-points.mjs",
     "test:assets": "node scripts/check-approved-assets.mjs",
     "test:flight": "node scripts/check-approved-camera-flight.mjs",
