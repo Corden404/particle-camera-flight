@@ -6,6 +6,7 @@ import { createMorphSculpture } from './particles/MorphSculpture.js';
 import { getViewportLayout } from './layout/viewport.js';
 import { Navigation, WheelIntent, getKeyIntent, isInteractiveTarget } from './interaction/Navigation.js';
 import { createModalController } from './ui/overlays.js';
+import { PointerField } from './interaction/PointerField.js';
 import './approved.css';
 
 // The four approved Blender stops. Only these big titles appear on the hero.
@@ -95,6 +96,7 @@ const timeOverride = captureTime !== null && Number.isFinite(Number(captureTime)
 const frozenCapture = captureStory !== null || timeOverride !== null;
 const state = new Navigation({ initial: captureStory ?? initialIndex });
 const wheelIntent = new WheelIntent();
+const pointerField = new PointerField();
 const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
 let motionOverride = null;
 let reducedMotion = motionPreference.matches;
@@ -191,9 +193,14 @@ function requestFrame() {
 
 function renderScene() {
   const time = timeOverride ?? (frozenCapture ? 0 : (performance.now() - startedAt) / 1000);
+  const interaction = pointerField.update(performance.now() / 1000, !reducedMotion);
   cameraPath.sample(camera, state.story, layout.portraitWeight);
-  surfaces.update(time, state.story, !reducedMotion, camera);
-  ambientField.update(time, state.story, !reducedMotion, camera);
+  // Add damped depth parallax to the authored flight, keeping each base pose.
+  const parallax = reducedMotion ? 0 : interaction.energy * (1 - layout.portraitWeight * 0.55);
+  camera.translateX(interaction.pointer.x * parallax * 1.05);
+  camera.translateY(interaction.pointer.y * parallax * 0.65);
+  surfaces.update(time, state.story, !reducedMotion, camera, interaction);
+  ambientField.update(time, state.story, !reducedMotion, camera, interaction);
   rail.style.setProperty('--progress', (state.story / 3).toFixed(4));
   renderer.render(scene, camera);
   frameCount++;
@@ -329,6 +336,20 @@ addEventListener('wheel', event => {
   const direction = wheelIntent.push(event, performance.now(), layout.height);
   if (direction) step(direction);
 }, { passive: true });
+
+// Listen above the canvas as the title and navigation occupy part of the scene.
+app.addEventListener('pointermove', event => {
+  if (!ready || modals.active || reducedMotion) return;
+  const rect = app.getBoundingClientRect();
+  pointerField.move(
+    (event.clientX - rect.left) / rect.width * 2 - 1,
+    1 - (event.clientY - rect.top) / rect.height * 2,
+    performance.now() / 1000
+  );
+  requestFrame();
+}, { passive: true });
+app.addEventListener('pointerleave', () => pointerField.leave(), { passive: true });
+addEventListener('blur', () => pointerField.leave());
 
 let touchStart = null;
 app.addEventListener('touchstart', event => {
@@ -508,6 +529,7 @@ if (urlParams.has('debug') || captureStory !== null) window.__LEEQ_DEBUG = {
   get renderer() { return renderer; },
   get rendererInfo() { return renderer?.info ?? null; },
   get frameCount() { return frameCount; },
+  get interaction() { return { pointer: pointerField.pointer.toArray(), velocity: pointerField.velocity.toArray(), energy: pointerField.energy, trail: pointerField.trail.map(sample => sample.toArray()) }; },
   get error() { return lastError; },
   goTo,
   seek(value) {

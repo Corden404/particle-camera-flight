@@ -30,12 +30,41 @@ varying float vBand;
 varying float vLight;
 varying float vAlpha;
 varying float vGlint;
+varying float vSilver;
+varying float vResponse;
+
+#include <particle_interaction>
 
 const float TAU = 6.28318530718;
 
 vec3 twistY(vec3 p, float angle) {
   float c = cos(angle), s = sin(angle);
   return vec3(p.x * c - p.z * s, p.y, p.x * s + p.z * c);
+}
+
+vec3 twistZ(vec3 p, float angle) {
+  float c = cos(angle), s = sin(angle);
+  return vec3(p.x * c - p.y * s, p.x * s + p.y * c, p.z);
+}
+
+float sculptureHash(vec3 p) {
+  p = fract(p * vec3(0.1031, 0.1030, 0.0973));
+  p += dot(p, p.yzx + 33.33);
+  return fract((p.x + p.y) * p.z);
+}
+
+float sculptureNoise(vec3 p) {
+  vec3 cell = floor(p);
+  vec3 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(mix(sculptureHash(cell), sculptureHash(cell + vec3(1.0, 0.0, 0.0)), f.x),
+      mix(sculptureHash(cell + vec3(0.0, 1.0, 0.0)),
+        sculptureHash(cell + vec3(1.0, 1.0, 0.0)), f.x), f.y),
+    mix(mix(sculptureHash(cell + vec3(0.0, 0.0, 1.0)),
+        sculptureHash(cell + vec3(1.0, 0.0, 1.0)), f.x),
+      mix(sculptureHash(cell + vec3(0.0, 1.0, 1.0)),
+        sculptureHash(cell + vec3(1.0, 1.0, 1.0)), f.x), f.y), f.z);
 }
 
 void main() {
@@ -60,9 +89,6 @@ void main() {
     fromCenter = uCenter2; toCenter = uCenter3;
   }
 
-  // Material regions and oriented surfaces release in cohorts. Bright structural
-  // anchors gather first; every point reaches its target before the final tenth.
-  // Tone remains a continuous baked code, never an assumed integer part id.
   float departureCue = clamp(aRandom.x * 0.48 +
     (1.0 - shadeStart.w) * 0.26 + abs(shadeStart.y) * 0.26, 0.0, 1.0);
   float targetAnchor = clamp(shadeEnd.w * 0.56 +
@@ -77,12 +103,34 @@ void main() {
   vec3 localStart = (start - fromCenter) * uModelScale;
   vec3 localEnd = (end - toCenter) * uModelScale;
   vec3 local = mix(localStart, localEnd, t);
+  vec3 surfaceLocal = local;
   vec3 blendedNormal = mix(shadeStart.xyz, shadeEnd.xyz, t);
   vec3 normal = dot(blendedNormal, blendedNormal) > 0.00000001 ?
     normalize(blendedNormal) : normalize(shadeStart.xyz + vec3(0.00001));
 
-  // Three authored stream bends replace a full cloud collapse. The original
-  // world-space endpoint poses and normals are exact when the envelopes are zero.
+  // The settled surface stays alive: a slow coherent wave passes through it,
+  // while individual grains drift by at most a small fraction of its silhouette.
+  float life = uTime * uMotion;
+  float wave = sin(dot(surfaceLocal, vec3(0.73, 1.19, 0.58)) - life * 1.22);
+  float crossWave = sin(dot(surfaceLocal, vec3(-0.38, 0.46, 1.11)) + life * 0.91);
+  float grainPhase = aRandom.x * TAU;
+  float grainScale = 0.025 + 0.092 * aRandom.y;
+  vec3 grainDrift = vec3(
+    sin(life + grainPhase + surfaceLocal.y * 0.24),
+    cos(life * 0.93 + aRandom.y * TAU + surfaceLocal.x * 0.20),
+    sin(life * 0.77 + grainPhase + surfaceLocal.z * 0.31)
+  ) * grainScale;
+  vec3 livingOffset = normal * (wave * 0.055 + crossWave * 0.026) + grainDrift;
+  livingOffset *= min(1.0, 0.16 / max(0.0001, length(livingOffset)));
+  local += livingOffset * uMotion * (1.0 - transit.w * 0.38);
+
+  // Rock about the current sculpture center, so distant world-space chapters
+  // stay framed while the form catches changing blue, amber and white bands.
+  float rockY = sin(life * 0.50) * 0.15 * uMotion;
+  float rockZ = sin(life * 0.50 + 0.60) * 0.12 * uMotion;
+  local = twistZ(twistY(local, rockY), rockZ);
+  normal = twistZ(twistY(normal, rockY), rockZ);
+
   float angle = transit.y * (0.5 + 0.5 * aRandom.x);
   local = twistY(local, angle);
   normal = twistY(normal, angle);
@@ -109,22 +157,23 @@ void main() {
     normal * sin(phaseNoise * 0.87) * 0.038) * transit.w;
 
   vec4 view = modelViewMatrix * vec4(p, 1.0);
+  vec3 response = vec3(0.0);
+  if (uMotion > 0.5) response = disturbParticles(view, 1.0 + transit.w * 0.40);
   gl_Position = projectionMatrix * view;
   float depth = -view.z;
   float rare = smoothstep(0.970, 0.997, aRandom.x);
-  // CSS viewport height and the live projection matrix keep sprite area aligned
-  // with the model's projected area as FOV/aspect change. DPR is applied once.
   float projectionScale = uViewportHeight / 900.0 *
     projectionMatrix[1][1] / 2.74747742 * uModelScale / 1.14;
-  float px = (2.40 + 1.95 * aRandom.y + 1.15 * rare) * uPixelRatio *
-    projectionScale * (14.0 / max(3.0, depth));
-  // Retain a readable sampled core at low-DPR portrait sizes; FOV/depth still
-  // scale the larger structural points continuously above this coverage floor.
-  gl_PointSize = clamp(px * (1.0 + transit.w * 0.09),
-    1.60 * uPixelRatio, 8.5 * uPixelRatio);
 
-  // A broad upper-left key, restrained lower-right fill, and a narrow side rim.
-  // Signed front/back attenuation lets the far surface fall into a dark interior.
+  // Small, crisp grains dominate; a few larger grains and the cursor wake
+  // provide the irregular sparkle seen in the reference rather than a fine net.
+  float sprite = 4.50 + 12.0 * pow(aRandom.y, 1.8) + rare * 2.2;
+  sprite *= 1.0 + sin(life * 5.0 + grainPhase) * 0.10 * uMotion;
+  float px = sprite * uPixelRatio * projectionScale * (14.0 / max(3.0, depth));
+  px += response.x * 7.0 * uPixelRatio;
+  gl_PointSize = clamp(px * (1.0 + transit.w * 0.10),
+    3.5 * uPixelRatio, 26.0 * uPixelRatio);
+
   vec3 viewNormal = normalize(normalMatrix * normal);
   vec3 toEye = normalize(-view.xyz);
   vec3 keyDirection = normalize(vec3(-0.62, 0.72, 0.75));
@@ -138,19 +187,27 @@ void main() {
     smoothstep(-0.1, 0.7, dot(viewNormal, rimDirection));
   float specular = pow(max(0.0,
     dot(viewNormal, normalize(keyDirection + toEye))), 32.0);
-  float depthShade = mix(1.0, 0.90, smoothstep(8.0, 32.0, depth));
-  float settled = (phase == 0.0 || phase == 1.0) ? 1.0 : 0.0;
-  // Idle light breath is intentionally separate from deterministic flight.
-  float breath = 1.0 + sin(uTime * 0.62 + aRandom.y * TAU) *
-    0.026 * settled * uMotion;
+  float depthShade = mix(1.0, 0.88, smoothstep(8.0, 32.0, depth));
+
+  // Spatial color fields move independently of the geometry. Broad saturated
+  // regions remain readable, with small grain-to-grain variations along edges.
+  vec3 colorFlow = vec3(life * 0.066, -life * 0.095, life * 0.049);
+  float colorNoise = sculptureNoise(surfaceLocal * 0.49 + colorFlow);
+  float colorWave = sin(dot(surfaceLocal, vec3(0.48, 0.67, 0.32)) +
+    colorNoise * 4.2 - life * 0.31);
+  float silverNoise = sculptureNoise(surfaceLocal * 0.65 -
+    colorFlow * 1.17 + vec3(5.1, 2.3, 8.4));
 
   vTone = mix(shadeStart.w, shadeEnd.w, t);
-  vBand = clamp(0.5 + normal.y * 0.3 + vTone * 0.2, 0.0, 1.0);
-  vLight = (0.22 + key * 1.02 + fill * 0.20 + rim * 0.30) *
+  vBand = clamp(0.5 + colorWave * 0.46 + (aRandom.x - 0.5) * 0.19, 0.0, 1.0);
+  vSilver = clamp(smoothstep(0.64, 0.83, silverNoise) * 0.83 +
+    specular * 0.24 + rim * 0.14, 0.0, 0.9);
+  vLight = (0.43 + key * 0.68 + fill * 0.16 + rim * 0.20) *
     mix(0.82, 1.0, front) * depthShade;
-  vGlint = (rare * 0.55 + specular * 0.30) *
-    (0.15 + 0.85 * front) * (0.6 + 0.4 * key) * breath;
-  vAlpha = (0.72 + 0.18 * aRandom.y) *
-    mix(0.18 + transit.w * 0.035, 1.0, front) *
-    smoothstep(0.8, 2.8, depth) * (1.0 - transit.w * 0.13) * breath;
+  vGlint = (rare * 0.53 + specular * 0.24) * (0.25 + 0.75 * front) *
+    (0.75 + 0.25 * sin(life * 0.95 + grainPhase));
+  vResponse = clamp(response.x * 0.48 + abs(response.y) * 0.30, 0.0, 1.0);
+  vAlpha = (0.72 + 0.24 * aRandom.y) *
+    mix(0.21 + transit.w * 0.035, 1.0, front) *
+    smoothstep(0.8, 2.8, depth) * (1.0 - transit.w * 0.12);
 }

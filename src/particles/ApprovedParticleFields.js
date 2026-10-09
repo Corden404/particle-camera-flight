@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import sculptureVert from './sculpture.vert.glsl?raw';
 import sculptureFrag from './sculpture.frag.glsl?raw';
 import { sampleChapterPalette, sampleLegEnvelope, viewportModelScale } from './art-direction.js';
+import pointerFieldShader from './pointer-field.glsl?raw';
+import { createInteractionUniforms, updateInteractionUniforms } from './ParticleInteraction.js';
 
 function seeded() {
   let state=624831;
@@ -82,24 +84,19 @@ export async function createSurfaceParticles(renderer) {
 }
 
 export function createFreeAmbientParticles(renderer, cameraData) {
-  // The star field is created inside the APPROVED Blender camera view volumes,
-  // not attached to a model, a screen overlay, or a skybox. Every point has an
-  // independent world-space position and motion, so camera parallax is genuine.
   if (!cameraData?.samples || cameraData.samples.length !== 361) {
     throw Error('Camera flight frames are required for atmospheric placement');
   }
   const rng = seeded();
-  const gaussian = () => Math.sqrt(-2 * Math.log(Math.max(1e-6,rng()))) * Math.cos(rng() * Math.PI * 2);
-  const aspect = Math.max(1.18, renderer.domElement.clientWidth / Math.max(1,renderer.domElement.clientHeight));
-  const halfFov = Math.tan(THREE.MathUtils.degToRad(cameraData.verticalFov*0.5));
+  const aspect = Math.max(1.18, renderer.domElement.clientWidth / Math.max(1, renderer.domElement.clientHeight));
+  const halfFov = Math.tan(THREE.MathUtils.degToRad(cameraData.verticalFov * 0.5));
   const cameraPosition = new THREE.Vector3();
   const cameraRotation = new THREE.Quaternion();
   const world = new THREE.Vector3();
-  const stops = [0,120,240,360];
+  const stops = [0, 120, 240, 360];
   const layers = [
-    { name:'Subtle diagonal galactic haze', count:8200, mode:0 },
-    { name:'Independent drifting spatial dust', count:6900, mode:1 },
-    { name:'Soft near-lens parallax particles', count:320, mode:2 }
+    { name: 'Blue, amber and silver drifting spatial flecks', count: 1900, mode: 1 },
+    { name: 'Near-lens colored grains with pointer parallax', count: 72, mode: 2 }
   ];
 
   const vertexShader = `
@@ -111,162 +108,273 @@ export function createFreeAmbientParticles(renderer, cameraData) {
     uniform float uViewportHeight;
     uniform float uLayer;
     uniform float uTransit;
-    uniform vec2 uAtmosphere;
     attribute vec3 aSeed;
     varying float vAlpha;
     varying float vColor;
+    varying float vWhite;
     varying float vLayer;
+    varying float vWake;
+
+    ${pointerFieldShader}
 
     void main() {
-      float story = clamp(uStory, 0.0, 3.0);
-      float phase = story - min(2.0, floor(story));
-      float settled = (phase == 0.0 || phase == 1.0) ? 1.0 : 0.0;
+      float clock = uTime * uMotion;
       vec3 p = position;
-      // Transit drift is phase-driven. Only a subtle settled shimmer uses time.
-      float wind = story * (0.35 + 0.16 * aSeed.x) +
-        sin(uTime * 0.22 + aSeed.y * 6.283) * 0.12 * settled;
+      // Nearby particles share a field, making its waves visible across space.
+      // Time advances directly rather than wobbling an almost stationary phase.
       vec3 flow = vec3(
-        sin(p.y * 0.14 + p.z * 0.083 + wind + aSeed.x * 6.283),
-        cos(p.x * 0.10 - p.z * 0.069 - wind * 0.85 + aSeed.y * 6.283),
-        sin(p.x * 0.12 + p.y * 0.17 + wind * 0.71 + aSeed.z * 6.283));
-      float scale = uLayer < 0.5 ? 0.32 : (uLayer < 1.5 ? 0.52 : 0.25);
-      p += flow * scale * uAtmosphere.y * uMotion;
+        sin(p.y * 0.16 + p.z * 0.073 + clock * 0.55),
+        cos(p.x * 0.14 - p.z * 0.069 - clock * 0.43),
+        sin(p.x * 0.10 + p.y * 0.17 + clock * 0.36));
+      flow += vec3(
+        cos(p.y * 0.43 - clock * 0.71),
+        sin(p.z * 0.36 + clock * 0.62),
+        cos(p.x * 0.31 - clock * 0.47)) * 0.21;
+      float scale = uLayer < 0.5 ? 0.62 : (uLayer < 1.5 ? 0.35 : 0.10);
+      p += flow * scale * (0.82 + aSeed.x * 0.18) * uMotion;
       p += vec3(-0.22, 0.08, 0.17) * uTransit * (0.5 + aSeed.x) * uMotion;
+
       vec4 mv = modelViewMatrix * vec4(p, 1.0);
+      float response = uLayer < 0.5 ? 0.78 : (uLayer < 1.5 ? 1.0 : 1.14);
+      vec3 disturbance = disturbParticles(mv, response * uMotion);
       gl_Position = projectionMatrix * mv;
       float depth = -mv.z;
-      float size = uLayer < 0.5 ? (1.4 + aSeed.x * 1.1) :
-        (uLayer < 1.5 ? (1.8 + aSeed.x * 1.4) : (7.0 + aSeed.x * 9.0));
+      float size = uLayer < 1.5 ? (4.05 + aSeed.x * 3.06) : (3.9 + aSeed.x * 6.5);
       float projectionScale = uViewportHeight / 900.0 * projectionMatrix[1][1] / 2.74747742;
       size *= uPixelRatio * projectionScale * (15.0 / max(1.0, depth));
-      gl_PointSize = clamp(size, 0.55 * uPixelRatio,
-        uLayer < 1.5 ? 5.4 * uPixelRatio : 25.0 * uPixelRatio);
+      size *= 1.0 + flow.y * 0.08 * uMotion + clamp(disturbance.z, 0.0, 1.0) * 0.20;
+      gl_PointSize = clamp(size, 2.1 * uPixelRatio,
+        uLayer < 1.5 ? 8.0 * uPixelRatio : 12.0 * uPixelRatio);
       float depthFade = smoothstep(1.4, 4.6, depth) *
         (1.0 - smoothstep(65.0, 105.0, depth));
-      float layerStrength = uLayer < 0.5 ? 0.20 : (uLayer < 1.5 ? 0.32 : 0.095);
-      float twinkle = 1.0 + 0.07 * sin(uTime * 0.62 + aSeed.x * 17.0) * settled * uMotion;
-      vAlpha = layerStrength * depthFade * twinkle *
-        (0.64 + 0.36 * aSeed.y) * uAtmosphere.x;
-      vColor = aSeed.z;
+      float layerStrength = uLayer < 1.5 ? 0.98 : 0.72;
+      float pulse = 0.97 + 0.03 * sin(clock * 0.87 + p.y * 0.19 + p.x * 0.11);
+      vAlpha = layerStrength * depthFade * pulse * (0.93 + 0.07 * aSeed.y);
+      // Blue and amber remain interspersed at every camera stop. A light spatial
+      // contribution lets their accents travel without recoloring the whole view.
+      vColor = aSeed.z * 0.86 + (0.5 + 0.5 * sin(position.x * 0.055 +
+        position.y * 0.10 + position.z * 0.03 + clock * 0.12 + uStory * 0.42)) * 0.14;
+      vWhite = smoothstep(0.82, 0.94, aSeed.y);
       vLayer = uLayer;
+      vWake = clamp(disturbance.x * 0.35 + abs(disturbance.y) * 0.5, 0.0, 1.0);
     }
   `;
   const fragmentShader = `
     precision highp float;
-    uniform vec3 uChapterPalette;
     varying float vAlpha;
     varying float vColor;
+    varying float vWhite;
     varying float vLayer;
+    varying float vWake;
 
     void main() {
       float r = length(gl_PointCoord - vec2(0.5));
       if (r >= 0.50) discard;
-      float core = 1.0 - smoothstep(0.015, 0.19, r);
-      float haze = 1.0 - smoothstep(0.06, 0.50, r);
-      float bokeh = exp(-14.0 * r * r);
-      float shape = vLayer < 0.5 ? haze * 0.30 :
-        (vLayer < 1.5 ? core * 0.74 + haze * 0.18 : bokeh * 0.46);
-      // Linear RGB values are intentionally below sculpture reflectances.
-      vec3 pearl = vec3(0.15, 0.18, 0.23);
-      vec3 cool = vec3(0.065, 0.105, 0.16);
-      vec3 warm = vec3(0.19, 0.145, 0.09);
-      float warmMask = smoothstep(0.42, 0.95, vColor) * uChapterPalette.y;
-      vec3 tint = mix(cool, warm, warmMask);
-      vec3 rgb = mix(pearl, tint, 0.36 + uChapterPalette.x * 0.20);
-      float opacity = shape * vAlpha;
-      if (opacity < 0.001) discard;
-      gl_FragColor = vec4(rgb, opacity);
-      #include <tonemapping_fragment>
+      float core = 1.0 - smoothstep(0.30, 0.49, r);
+      float haze = 1.0 - smoothstep(0.18, 0.50, r);
+      float bokeh = exp(-8.0 * r * r) * (1.0 - smoothstep(0.36, 0.50, r));
+      float shape = vLayer < 1.5 ? core * 0.98 + haze * 0.02 : core * 0.82 + bokeh * 0.18;
+      // Linear forms of the reference's electric blue and warm amber.
+      vec3 blue = vec3(0.051, 0.250, 0.723);
+      vec3 amber = vec3(0.905, 0.262, 0.009);
+      vec3 silver = vec3(0.73, 0.85, 1.0);
+      vec3 tint = mix(blue, amber, smoothstep(0.50, 0.60, vColor));
+      tint = mix(tint, silver, vWhite * 0.80);
+      float opacity = shape * vAlpha * (1.0 + vWake * 0.34);
+      if (opacity < 0.002) discard;
+      gl_FragColor = vec4(tint, min(0.98, opacity));
       #include <colorspace_fragment>
     }
   `;
+
   const group = new THREE.Group();
-  group.name = 'World-space free-flowing cosmic particles';
-  const uniformsList=[], pointsList=[];
-  const art=sampleLegEnvelope(0,0);
-  const palette=sampleChapterPalette(0);
+  group.name = 'Waving microdot surface and colored spatial flecks';
+  const uniformsList = [], pointsList = [];
+  const art = sampleLegEnvelope(0, 0);
   for (const layer of layers) {
-    const positions = new Float32Array(layer.count*3);
-    const seeds = new Float32Array(layer.count*3);
-    for (let i=0;i<layer.count;i++) {
-      // The original 15s camera flight gives us a continuous world-space volume.
-      // Most dust is distributed around the four viewing stations, the rest
-      // along the entire flight, so transitions also have particles to pass by.
-      const strongWeight=layer.mode===0?0.80:layer.mode===1?0.70:0.88;
-      const selectedFrame=rng()<strongWeight?stops[Math.floor(rng()*4)]:Math.floor(rng()*361);
-      const pose=cameraData.samples[selectedFrame];
-      cameraPosition.fromArray(pose,0);
-      cameraRotation.fromArray(pose,3);
-      let u,v,depth;
-      if (layer.mode===0) {
-        u=(rng()-.5)*2.7;
-        v=0.32*u+gaussian()*0.29;
-        depth=17+rng()*25;
-      } else if(layer.mode===1) {
-        u=(rng()-.5)*2.75;
-        v=(rng()-.5)*2.4;
-        depth=6.2+rng()*27;
+    const positions = new Float32Array(layer.count * 3);
+    const seeds = new Float32Array(layer.count * 3);
+    for (let i = 0; i < layer.count; i++) {
+      const strongWeight = layer.mode === 1 ? 0.84 : 0.88;
+      const selectedFrame = rng() < strongWeight ? stops[Math.floor(rng() * 4)] : Math.floor(rng() * 361);
+      const pose = cameraData.samples[selectedFrame];
+      cameraPosition.fromArray(pose, 0);
+      cameraRotation.fromArray(pose, 3);
+      let u, v, depth;
+      if (layer.mode === 1) {
+        u = (rng() - 0.5) * 2.75;
+        v = (rng() - 0.5) * 2.4;
+        depth = 6.2 + rng() * 27;
       } else {
-        u=(rng()-.5)*2.4;
-        v=(rng()-.5)*2.15;
-        depth=2.8+rng()*10.5;
+        u = (rng() - 0.5) * 2.4;
+        v = (rng() - 0.5) * 2.15;
+        depth = 2.8 + rng() * 10.5;
       }
-      world.set(u*depth*halfFov*aspect, v*depth*halfFov,-depth);
+      world.set(u * depth * halfFov * aspect, v * depth * halfFov, -depth);
       world.applyQuaternion(cameraRotation).add(cameraPosition);
-      const j=i*3;
-      positions[j]=world.x;
-      positions[j+1]=world.y;
-      positions[j+2]=world.z;
-      seeds[j]=rng();
-      seeds[j+1]=rng();
-      seeds[j+2]=rng();
+      const j = i * 3;
+      positions[j] = world.x;
+      positions[j + 1] = world.y;
+      positions[j + 2] = world.z;
+      seeds[j] = rng();
+      seeds[j + 1] = rng();
+      seeds[j + 2] = rng();
     }
-    const geometry=new THREE.BufferGeometry();
-    geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));
-    geometry.setAttribute('aSeed',new THREE.BufferAttribute(seeds,3));
-    const uniforms={
-      uTime:{value:0},uStory:{value:0},uMotion:{value:1},
-      uPixelRatio:{value:renderer.getPixelRatio()},uLayer:{value:layer.mode},
-      uViewportHeight:{value:renderer.domElement.clientHeight||900},uTransit:{value:0},
-      uAtmosphere:{value:new THREE.Vector2(1,1)},
-      uChapterPalette:{value:new THREE.Vector3(palette.cool,palette.warm,palette.lilac)}
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 3));
+    const uniforms = {
+      uTime: { value: 0 }, uStory: { value: 0 }, uMotion: { value: 1 },
+      uPixelRatio: { value: renderer.getPixelRatio() }, uLayer: { value: layer.mode },
+      uViewportHeight: { value: renderer.domElement.clientHeight || 900 }, uTransit: { value: 0 },
+      ...createInteractionUniforms()
     };
-    const material=new THREE.ShaderMaterial({
-      uniforms,vertexShader,fragmentShader,
-      transparent:true,depthWrite:false,depthTest:true,blending:THREE.AdditiveBlending,toneMapped:true
+    const material = new THREE.ShaderMaterial({
+      uniforms, vertexShader, fragmentShader,
+      transparent: true, depthWrite: false, depthTest: true,
+      blending: THREE.NormalBlending, toneMapped: false
     });
-    const points=new THREE.Points(geometry,material);
-    points.frustumCulled=false;
-    points.name=layer.name;
+    const points = new THREE.Points(geometry, material);
+    points.frustumCulled = false;
+    points.renderOrder = layer.mode === 2 ? 4 : -20 + layer.mode;
+    points.name = layer.name;
     group.add(points);
     pointsList.push(points);
     uniformsList.push(uniforms);
   }
+
+  // The reference's fine dot raster spans the viewport independently of the
+  // colored world particles. It remains a point surface, with no opaque mesh.
+  const gridUniforms = {
+    uTime: { value: 0 }, uStory: { value: 0 }, uMotion: { value: 1 },
+    uPixelRatio: { value: renderer.getPixelRatio() },
+    ...createInteractionUniforms()
+  };
+  const gridMaterial = new THREE.ShaderMaterial({
+    uniforms: gridUniforms,
+    transparent: true, depthTest: false, depthWrite: false,
+    blending: THREE.NormalBlending, toneMapped: false,
+    vertexShader: `
+      precision highp float;
+      uniform float uTime;
+      uniform float uStory;
+      uniform float uMotion;
+      uniform float uPixelRatio;
+      varying float vAlpha;
+      varying float vTint;
+      varying float vWake;
+
+      ${pointerFieldShader}
+
+      float gridGrain(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+      }
+
+      void main() {
+        float clock = uTime * uMotion;
+        vec2 q = position.xy * vec2(uAspect, 1.0);
+        float wave = sin(q.x * 3.7 + q.y * 1.3 - clock * 0.75);
+        float crossWave = sin(q.y * 3.2 - q.x * 1.1 + clock * 0.46);
+        vec2 flow = vec2(crossWave, sin(q.x * 2.6 + q.y * 0.6 - clock * 0.40));
+        vec2 ndc = position.xy + flow * vec2(1.0 / uAspect, 1.0) * 0.012 * uMotion;
+        float depth = 48.0;
+        vec4 view = vec4(ndc * depth /
+          vec2(projectionMatrix[0][0], projectionMatrix[1][1]), -depth, 1.0);
+        vec3 disturbance = disturbParticles(view, 0.65 * uMotion);
+        gl_Position = projectionMatrix * view;
+        vWake = clamp(disturbance.x * 0.55 + abs(disturbance.y) * 0.60, 0.0, 1.0);
+        gl_PointSize = (1.05 + 0.12 * (wave * 0.5 + 0.5) + vWake * 0.18) * uPixelRatio;
+        float radial = 1.0 - smoothstep(0.48, 1.42,
+          length(position.xy * vec2(0.66, 0.82)));
+        float grain = 0.90 + 0.10 * gridGrain(position.xy + floor(clock * 12.0));
+        vAlpha = radial * (0.15 + 0.095 * (wave * 0.5 + 0.5) +
+          0.045 * (crossWave * 0.5 + 0.5) + vWake * 0.24) * grain;
+        vTint = 0.5 + 0.5 * sin(q.x * 1.15 + q.y * 0.75 + clock * 0.09 + uStory * 0.35);
+      }
+    `,
+    fragmentShader: `
+      precision highp float;
+      varying float vAlpha;
+      varying float vTint;
+      varying float vWake;
+      void main() {
+        float radius = length(gl_PointCoord - vec2(0.5));
+        if (radius > 0.5) discard;
+        float coverage = 1.0 - smoothstep(0.22, 0.5, radius);
+        vec3 blue = vec3(0.051, 0.250, 0.723);
+        vec3 amber = vec3(0.905, 0.262, 0.009);
+        vec3 tint = mix(blue, amber, smoothstep(0.44, 0.69, vTint));
+        vec3 color = mix(vec3(0.26), tint, 0.20 + vWake * 0.20);
+        gl_FragColor = vec4(color, vAlpha * coverage);
+        #include <colorspace_fragment>
+      }
+    `
+  });
+  const grid = new THREE.Points(new THREE.BufferGeometry(), gridMaterial);
+  grid.name = 'Viewport microdot grid with flowing waves and pointer wake';
+  grid.frustumCulled = false;
+  grid.renderOrder = -1000;
+  group.add(grid);
+  const gridSize = { width: 0, height: 0, low: false };
+  function resizeGrid(force = false) {
+    const width = Math.max(1, renderer.domElement.clientWidth || 1);
+    const height = Math.max(1, renderer.domElement.clientHeight || 1);
+    if (!force && width === gridSize.width && height === gridSize.height) return;
+    gridSize.width = width;
+    gridSize.height = height;
+    let columns = width < 540 ? 40 : width < 768 ? 80 :
+      width < 1020 ? 120 : width < 1400 ? 200 : 300;
+    if (gridSize.low) columns = Math.min(columns, 160);
+    const spacing = width / columns;
+    const rows = Math.ceil(height / spacing);
+    const margin = 4;
+    const positions = new Float32Array((columns + margin * 2) * (rows + margin * 2) * 3);
+    let offset = 0;
+    for (let y = -margin; y < rows + margin; y++) {
+      for (let x = -margin; x < columns + margin; x++) {
+        positions[offset++] = (x + 0.5) * spacing / width * 2 - 1;
+        positions[offset++] = 1 - (y + 0.5) * spacing / height * 2;
+        positions[offset++] = 0;
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    grid.geometry.dispose();
+    grid.geometry = geometry;
+  }
+  resizeGrid();
+  const allUniforms = [...uniformsList, gridUniforms];
+
   return {
     group,
-    count:layers.reduce((total,l)=>total+l.count,0),
-    update(time,story,motion){
-      const currentStory=Number.isFinite(story)?Math.min(3,Math.max(0,story)):0;
-      const leg=Math.min(2,Math.floor(currentStory));
-      sampleLegEnvelope(leg,currentStory-leg,art);
-      sampleChapterPalette(currentStory,palette);
-      const viewportHeight=renderer.domElement.clientHeight||900;
-      for(const uniforms of uniformsList){
-        uniforms.uTime.value=Number.isFinite(time)?time:0;
-        uniforms.uStory.value=currentStory;
-        uniforms.uMotion.value=motion?1:0;
-        uniforms.uViewportHeight.value=viewportHeight;
-        uniforms.uTransit.value=art.transit;
-        uniforms.uAtmosphere.value.set(art.ambientAlpha,art.ambientMotion);
-        uniforms.uChapterPalette.value.set(palette.cool,palette.warm,palette.lilac);
+    get count() { return layers.reduce((total, layer) => total + layer.count, 0) + grid.geometry.getAttribute('position').count; },
+    update(time, story, motion, camera, interaction) {
+      const currentStory = Number.isFinite(story) ? Math.min(3, Math.max(0, story)) : 0;
+      const leg = Math.min(2, Math.floor(currentStory));
+      sampleLegEnvelope(leg, currentStory - leg, art);
+      const viewportHeight = renderer.domElement.clientHeight || 900;
+      resizeGrid();
+      for (const uniforms of allUniforms) {
+        uniforms.uTime.value = Number.isFinite(time) ? time : 0;
+        uniforms.uStory.value = currentStory;
+        uniforms.uMotion.value = motion ? 1 : 0;
+        if (uniforms.uViewportHeight) uniforms.uViewportHeight.value = viewportHeight;
+        if (uniforms.uTransit) uniforms.uTransit.value = art.transit;
+        updateInteractionUniforms(uniforms, motion ? interaction : null, camera);
       }
     },
-    quality(low){
-      pointsList.forEach((obj,i)=>{
-        obj.geometry.setDrawRange(0,Math.floor(layers[i].count*(low?i===2?0.34:0.54:1.0)));
-        uniformsList[i].uPixelRatio.value=renderer.getPixelRatio();
+    quality(low) {
+      pointsList.forEach((obj, i) => {
+        obj.geometry.setDrawRange(0, Math.floor(layers[i].count * (low ? layers[i].mode === 2 ? 0.55 : 0.75 : 1.0)));
+        uniformsList[i].uPixelRatio.value = renderer.getPixelRatio();
       });
+      gridUniforms.uPixelRatio.value = renderer.getPixelRatio();
+      if (gridSize.low !== low) { gridSize.low = low; resizeGrid(true); }
     },
-    dispose(){pointsList.forEach(obj=>{obj.geometry.dispose();obj.material.dispose();});}
+    dispose() {
+      pointsList.forEach(obj => { obj.geometry.dispose(); obj.material.dispose(); });
+      grid.geometry.dispose();
+      gridMaterial.dispose();
+    }
   };
 }

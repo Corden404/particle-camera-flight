@@ -26,6 +26,7 @@ The sequence is **sculpture → NASA 70m antenna → Curiosity rover → Apollo 
 
 | Action | Result |
 | --- | --- |
+| Move the pointer across the scene | Push and drag nearby particles; leave a fading wave through the sculpture and background |
 | Scroll or swipe vertically | Move one chapter; repeated momentum does not queue extra chapters |
 | Right-side arrows | Previous/next chapter, bounded at the ends |
 | Background Arrow/Page keys or Space | Chapter navigation |
@@ -70,13 +71,13 @@ The baker allocates the exact point budget across connected surface components. 
 
 ## Composition and artistic controls
 
-The runtime measures the app rectangle and derives one continuous portrait weight from its aspect ratio. Titles, camera framing and sculpture scale share that weight. There is no abrupt 759/760-pixel camera switch. Wide viewports use the original camera positions/quaternions; portrait dock adjustments fade away during travel.
+The runtime measures the app rectangle and derives one continuous portrait weight from its aspect ratio. Titles, camera framing and sculpture scale share that weight. There is no abrupt 759/760-pixel camera switch. Wide viewports use the original camera route as their base, with damped pointer parallax added while motion is enabled; portrait dock adjustments fade away during travel.
 
-The sculptures use one morphing `THREE.Points` draw object with 22,000 points in High and 70% of that draw range in Eco. No solid mesh is added. The three independent atmospheric layers contain 8,200 distant points, 6,900 midground motes and 320 foreground particles before quality reduction.
+The sculptures use one morphing `THREE.Points` draw object with 22,000 points in High and 70% of that draw range in Eco. The atmosphere combines 1,900 colored spatial flecks, 72 near-lens particles and an independent responsive microdot grid. The grid uses 40–300 columns according to viewport width, reduced in Eco. All four render objects are point clouds.
 
-Static forms use directional key/fill/rim lighting, signed front/back attenuation, coherent surface tone, and a small set of brighter points. Active fragment shaders operate in linear working color, then apply the renderer's tone mapping and sRGB conversion. Point diameters account for viewport height, projection and depth.
+Saturated blue (`#4089dd`) and amber (`#f48c18`) regions move across each form, with limited silver highlights and crisp varied grains. Particle materials bypass ACES tone mapping to retain those colors. The sculpture emits calibrated display colors directly; the ambient materials convert their linear palette to sRGB. Grain diameters account for viewport height, projection, depth and cursor proximity.
 
-Each of the three legs has its own scatter, swirl direction, bend, lift and camera-focus envelope. Particle paths depend on chapter phase, so reverse travel retraces the same shapes. Motion decays before docking and exact integer story positions use the baked poses with the existing display scale (1.14 on wide layouts, smoothly approaching 1.10 in portrait). Idle motion affects light subtly rather than distorting the model.
+Each of the three legs has its own scatter, swirl direction, bend, lift and camera-focus envelope. The underlying transition remains chapter-phase driven. Continuous bounded drift, traveling surface waves and gentle rocking are added around the current model center, including when a chapter is settled. The microdot grid has its own moving brightness and displacement waves. Pointer position and velocity drive a shared local force with an eight-sample wake that fades over roughly 1.8 seconds; reduced motion disables these offsets.
 
 | What to adjust | Active location |
 | --- | --- |
@@ -86,9 +87,11 @@ Each of the three legs has its own scatter, swirl direction, bend, lift and came
 | Dock framing and camera interpolation | `src/camera/ApprovedCamera.js` |
 | Per-leg envelopes, palette and display scale | `src/particles/art-direction.js` |
 | Sculpture uniforms, pose alignment and draw range | `src/particles/MorphSculpture.js` |
-| Sculpture lighting, particle size and transit geometry | `src/particles/sculpture-morph.vert.glsl` |
+| Sculpture drift, rocking, moving color regions, particle size and transit geometry | `src/particles/sculpture-morph.vert.glsl` |
 | Particle core, halo and final output color | `src/particles/sculpture.frag.glsl` |
-| Independent ambient field | `src/particles/ApprovedParticleFields.js` |
+| Colored ambient field and animated microdot grid | `src/particles/ApprovedParticleFields.js` |
+| Pointer smoothing, velocity and wake lifetime | `src/interaction/PointerField.js` |
+| Shared pointer displacement, ripple radius and uniform binding | `src/particles/pointer-field.glsl`, `src/particles/ParticleInteraction.js` |
 | Offline sampling weights and distribution | `scripts/point-sampling.mjs` |
 
 ## Accessibility, loading and rendering
@@ -120,7 +123,8 @@ For reproducible visual inspection:
 - `/?capture=0.5&captureTime=4` freezes the midpoint of the first leg.
 - Use `capture=1`, `2` or `3` for the other docks.
 - With a capture query and no explicit time, the frozen time is zero.
-- `window.__LEEQ_DEBUG` exposes readiness, story/target, camera, point counts, layout, renderer info, frame count, `goTo()` and `seek()`.
+- `window.__LEEQ_DEBUG` exposes readiness, story/target, camera, point counts, layout, renderer info, frame count, live `interaction`, `goTo()` and `seek()`.
+- Use a live `/?debug=1` page without capture parameters to assess idle movement and mouse response over several seconds. Frozen frames cannot verify these effects.
 
 Inspect actual desktop and phone renders when changing light, size or composition. A passing build does not establish visual quality or performance on every device. Local animation callback timings are not field Core Web Vitals or GPU timings.
 

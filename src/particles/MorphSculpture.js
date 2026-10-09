@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import vertexShader from './sculpture-morph.vert.glsl?raw';
 import fragmentShader from './sculpture.frag.glsl?raw';
+import pointerField from './pointer-field.glsl?raw';
+import { createInteractionUniforms, updateInteractionUniforms } from './ParticleInteraction.js';
 import { sampleChapterPalette, sampleLegEnvelope, viewportModelScale } from './art-direction.js';
 
 // Four separately approved models, encoded as independently sampled surfaces.
@@ -144,6 +146,7 @@ export async function createMorphSculpture(renderer) {
   const art = sampleLegEnvelope(0, 0);
   const palette = sampleChapterPalette(0);
   const uniforms = {
+    ...createInteractionUniforms(),
     uTime: { value: 0 },
     uStory: { value: 0 },
     uMotion: { value: 1 },
@@ -162,8 +165,10 @@ export async function createMorphSculpture(renderer) {
     uCenter3: { value: poses[3].center.clone() }
   };
   const material = new THREE.ShaderMaterial({
-    uniforms, vertexShader, fragmentShader, transparent: true,
-    depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: true
+    uniforms,
+    vertexShader: vertexShader.replace('#include <particle_interaction>', pointerField),
+    fragmentShader, transparent: true,
+    depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false
   });
   const points = new THREE.Points(geometry, material);
   points.name = 'Single continuous GPU scatter-and-reassemble particle sculpture';
@@ -178,7 +183,7 @@ export async function createMorphSculpture(renderer) {
     count,
     morphing: true,
     setViewportScale(weight) { uniforms.uModelScale.value = viewportModelScale(weight); },
-    update(time, story, moving, camera) {
+    update(time, story, moving, camera, interaction) {
       const currentStory = Number.isFinite(story) ? Math.min(3, Math.max(0, story)) : 0;
       const leg = Math.min(2, Math.floor(currentStory));
       sampleLegEnvelope(leg, currentStory - leg, art);
@@ -191,6 +196,7 @@ export async function createMorphSculpture(renderer) {
       uniforms.uTiming.value.set(art.travelStart, art.travelEnd, art.stagger);
       uniforms.uStream.value.set(art.bend, art.lift, art.lane);
       uniforms.uChapterPalette.value.set(palette.cool, palette.warm, palette.lilac);
+      updateInteractionUniforms(uniforms, moving ? interaction : null, camera);
       if (camera) {
         // Guide the dissolving cloud through the camera's actual field of view;
         // these are still world-space particles, not a flat screen overlay.

@@ -6,38 +6,32 @@ varying float vBand;
 varying float vLight;
 varying float vAlpha;
 varying float vGlint;
+varying float vSilver;
+varying float vResponse;
 
 void main() {
-  vec2 centered = gl_PointCoord - vec2(0.5);
-  float radius = length(centered);
-  if (radius > 0.5) discard;
+  float radius = length(gl_PointCoord - vec2(0.5));
+  if (radius > 0.24) discard;
 
-  // A readable circular core carries thin rods and structural planes. The
-  // short, low-energy halo preserves discrete points without a diffuse coat.
-  float core = 1.0 - smoothstep(0.055, 0.31, radius);
-  float halo = 1.0 - smoothstep(0.22, 0.49, radius);
-  float intensity = core * 0.90 + halo * 0.10;
+  // A hard round center with a short antialiased falloff. Wide transparent
+  // sprite margins let the visible grains vary in size without a foggy halo.
+  float grain = 1.0 - smoothstep(0.085, 0.225, radius);
 
-  // All reflectances below are authored in linear RGB. Three applies the
-  // renderer's tone mapping and output transfer function exactly once below.
-  vec3 silver = vec3(0.50, 0.56, 0.64);
-  vec3 steelBlue = vec3(0.19, 0.28, 0.39);
-  vec3 champagne = vec3(0.58, 0.44, 0.28);
-  vec3 lilac = vec3(0.32, 0.28, 0.40);
-  float warmRegion = smoothstep(0.62, 0.84, vTone);
-  float coolWeight = uChapterPalette.x * (0.28 + 0.35 * (1.0 - warmRegion));
-  float warmWeight = uChapterPalette.y * (0.14 + 0.62 * warmRegion);
-  float lilacWeight = uChapterPalette.z * (1.0 - warmRegion);
-  vec3 color = silver * (1.0 - coolWeight - warmWeight - lilacWeight) +
-    steelBlue * coolWeight + champagne * warmWeight + lilac * lilacWeight;
-  // Darker material regions remain legible without turning into a bright coat.
-  float materialValue = mix(0.68, 1.0, smoothstep(0.10, 0.43, vTone));
-  color *= materialValue * vLight * (0.94 + 0.06 * vBand);
-  color += silver * vGlint * 0.52;
+  // Deliberately match the reference's untonemapped sRGB particle palette.
+  // These are final display values: applying ACES or another transfer here
+  // would wash the saturated blue / amber back into the old silver-only coat.
+  vec3 blue = vec3(0.25098, 0.53725, 0.86667);
+  vec3 amber = vec3(0.95686, 0.54902, 0.09412);
+  vec3 silver = vec3(0.94, 0.975, 1.0);
+  float chapterBias = (uChapterPalette.y - uChapterPalette.x) * 0.055;
+  float warm = smoothstep(0.44, 0.56, vBand + chapterBias);
+  vec3 color = mix(blue, amber, warm);
+  color = mix(color, silver, vSilver);
+  float materialValue = mix(0.86, 1.0, smoothstep(0.10, 0.48, vTone));
+  color *= materialValue * vLight * (1.0 + vResponse * 0.26);
+  color += silver * vGlint * 0.43;
 
-  float opacity = intensity * vAlpha;
+  float opacity = grain * vAlpha;
   if (opacity < 0.003) discard;
   gl_FragColor = vec4(color, opacity);
-  #include <tonemapping_fragment>
-  #include <colorspace_fragment>
 }
