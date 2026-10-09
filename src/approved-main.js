@@ -3,258 +3,525 @@ import gsap from 'gsap';
 import { loadApprovedCamera } from './camera/ApprovedCamera.js';
 import { createFreeAmbientParticles } from './particles/ApprovedParticleFields.js';
 import { createMorphSculpture } from './particles/MorphSculpture.js';
+import { getViewportLayout } from './layout/viewport.js';
+import { Navigation, WheelIntent, getKeyIntent, isInteractiveTarget } from './interaction/Navigation.js';
+import { createModalController } from './ui/overlays.js';
 import './approved.css';
 
-// The four approved Blender stops. Only these big titles are displayed.
+// The four approved Blender stops. Only these big titles appear on the hero.
 const chapters = [
   { id: 'home', lines: ['SCULPTING', 'IDEAS'] },
   { id: 'about', lines: ['A CURIOUS', 'MIND'] },
   { id: 'work', lines: ['BUILDING', "WHAT'S NEXT"] },
   { id: 'contact', lines: ['MAKE', 'CONTACT'] },
 ];
-
+const closeIcon = "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.4' aria-hidden='true'><path d='M5 5 19 19M19 5 5 19'/></svg>";
 const app = document.querySelector('#app');
 app.innerHTML = [
-  "<canvas id='approved-scene' aria-label='Interactive three-dimensional sculptures and flowing particles'></canvas>",
-  "<div class='approved-vignette'></div>",
+  "<canvas id='approved-scene' role='img' aria-label='Interactive three-dimensional sculptures and flowing particles'></canvas>",
+  "<div class='approved-vignette' aria-hidden='true'></div>",
   "<div class='approved-grain' aria-hidden='true'></div>",
   "<header class='approved-header'>",
-  "<button type='button' class='approved-menu-button' id='menu-button' aria-label='Open navigation' aria-expanded='false'>",
-  "<span></span><span></span></button>",
-  "</header>",
-  "<main class='approved-chapter'>",
-  "<button type='button' class='approved-title-button' id='title-button' aria-label='Move to next chapter'>",
-  "<h1 id='approved-title' aria-live='polite'></h1>",
-  "</button></main>",
+  "<button type='button' class='approved-menu-button' id='menu-button' aria-label='Open navigation' aria-controls='approved-overlay-menu' aria-haspopup='dialog' aria-expanded='false'>",
+  "<span></span><span></span></button></header>",
+  "<main class='approved-chapter'><h1>",
+  "<button type='button' class='approved-title-button' id='title-button'><span id='approved-title'></span></button>",
+  "</h1></main>",
   "<nav class='approved-steps' aria-label='Chapter navigation'>",
   "<button type='button' id='approved-prev' aria-label='Previous chapter'>",
   "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.35' aria-hidden='true'><path d='m6 15 6-6 6 6'/></svg></button>",
   "<div class='approved-steps-rail' aria-hidden='true'><i></i></div>",
   "<button type='button' id='approved-next' aria-label='Next chapter'>",
-  "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.35' aria-hidden='true'><path d='m6 9 6 6 6-6'/></svg></button>",
-  "</nav>",
-  "<nav class='approved-overlay-menu' id='approved-overlay-menu' aria-label='Select a chapter' aria-hidden='true'>",
-  "<button type='button' id='close-menu' class='approved-menu-close' aria-label='Close navigation'>",
-  "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.4' aria-hidden='true'><path d='M5 5 19 19M19 5 5 19'/></svg></button>",
-  chapters.map((chapter, index) => "<button type='button' class='approved-menu-item' data-chapter='"+index+"'><span>"+chapter.lines.join(' ')+"</span></button>").join(''),
+  "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.35' aria-hidden='true'><path d='m6 9 6 6 6-6'/></svg></button></nav>",
+  "<div class='approved-overlay-menu' id='approved-overlay-menu' role='dialog' aria-modal='true' aria-labelledby='approved-menu-title' aria-hidden='true' tabindex='-1' data-modal hidden inert>",
+  "<h2 class='approved-sr-only' id='approved-menu-title'>Choose a chapter</h2>",
+  "<button type='button' id='close-menu' class='approved-menu-close' aria-label='Close navigation' data-close-panel data-initial-focus>" + closeIcon + "</button>",
+  chapters.map((chapter, index) => "<button type='button' class='approved-menu-item' data-chapter='" + index + "'><span>" + chapter.lines.join(' ') + "</span></button>").join(''),
+  "<div class='approved-menu-preferences' role='group' aria-label='Display preferences'>",
+  "<button type='button' id='motion-toggle' aria-pressed='false'>Reduce motion: Off</button>",
+  "<button type='button' id='quality-toggle' aria-pressed='true'>Quality: High</button></div>",
   "<div class='approved-external-icons'>",
-  "<a href='https://github.com/Corden404' target='_blank' rel='noreferrer' aria-label='GitHub profile' title='GitHub'><svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.3' aria-hidden='true'><path d='M8 19c-5-1-5-5-5-7a9 9 0 0 1 2-6l-.2-3L8 4a10 10 0 0 1 8 0l3-1-.2 3a9 9 0 0 1 2 6c0 2-1 6-5 7M9 21v-4c0-1-1-2-2-2M15 21v-4c0-1 1-2 2-2'/></svg></a>",
-  "<a href='./scene/ASSET_CREDITS.txt' target='_blank' rel='noreferrer' aria-label='Model credits and licenses' title='Asset credits'><svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.3' aria-hidden='true'><circle cx='12' cy='12' r='9'/><path d='M12 11v6M12 7h.01'/></svg></a>",
-  "</div>",
-  "</nav>",
-  "<div class='approved-loader' id='approved-loader' role='status' aria-label='Loading the 3D scene'><span class='approved-loader-mark'></span></div>"
+  "<a href='https://github.com/Corden404' target='_blank' rel='noopener noreferrer' aria-label='GitHub profile' title='GitHub'><svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.3' aria-hidden='true'><path d='M8 19c-5-1-5-5-5-7a9 9 0 0 1 2-6l-.2-3L8 4a10 10 0 0 1 8 0l3-1-.2 3a9 9 0 0 1 2 6c0 2-1 6-5 7M9 21v-4c0-1-1-2-2-2M15 21v-4c0-1 1-2 2-2'/></svg></a>",
+  "<a href='./scene/ASSET_CREDITS.txt' target='_blank' rel='noopener noreferrer' aria-label='Model credits and licenses' title='Asset credits'><svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.3' aria-hidden='true'><circle cx='12' cy='12' r='9'/><path d='M12 11v6M12 7h.01'/></svg></a></div></div>",
+  "<section class='approved-panel' id='work-panel' role='dialog' aria-modal='true' aria-labelledby='work-panel-title' aria-describedby='work-panel-copy' aria-hidden='true' tabindex='-1' data-modal hidden inert>",
+  "<button type='button' class='approved-menu-close' aria-label='Close work' data-close-panel data-initial-focus>" + closeIcon + "</button>",
+  "<div class='approved-panel-inner'><p class='approved-panel-kicker'>Selected work</p>",
+  "<h2 class='approved-panel-title' id='work-panel-title'>Interactive camera-flight study</h2>",
+  "<p class='approved-panel-copy' id='work-panel-copy'>Four particle sculptures connected by one continuous camera route. A study in form, motion, and interaction.</p>",
+  "<a class='approved-panel-link' href='https://github.com/Corden404?tab=repositories' target='_blank' rel='noopener noreferrer'>Explore repositories</a></div></section>",
+  "<section class='approved-panel' id='contact-panel' role='dialog' aria-modal='true' aria-labelledby='contact-panel-title' aria-describedby='contact-panel-copy' aria-hidden='true' tabindex='-1' data-modal hidden inert>",
+  "<button type='button' class='approved-menu-close' aria-label='Close contact' data-close-panel data-initial-focus>" + closeIcon + "</button>",
+  "<div class='approved-panel-inner'><p class='approved-panel-kicker'>Make contact</p>",
+  "<h2 class='approved-panel-title' id='contact-panel-title'>Let's connect</h2>",
+  "<p class='approved-panel-copy' id='contact-panel-copy'>Find Corden404 on GitHub.</p>",
+  "<a class='approved-panel-link' href='https://github.com/Corden404' target='_blank' rel='noopener noreferrer'>GitHub — Corden404</a></div></section>",
+  "<p class='approved-sr-only' id='approved-announcement' role='status' aria-live='polite' aria-atomic='true'></p>",
+  "<section class='approved-loader' id='approved-loader' role='dialog' aria-modal='true' aria-labelledby='scene-status-title' aria-describedby='scene-status-copy' aria-hidden='true' tabindex='-1' data-modal hidden inert>",
+  "<div class='approved-loader-content'><span class='approved-loader-mark' aria-hidden='true'></span>",
+  "<h2 class='approved-loader-title' id='scene-status-title' tabindex='-1' data-initial-focus>Loading scene</h2>",
+  "<p class='approved-loader-copy' id='scene-status-copy'>Preparing the camera flight.</p>",
+  "<div class='approved-loader-actions'><button type='button' id='retry-scene' hidden>Retry</button>",
+  "<a class='approved-panel-link' href='https://github.com/Corden404' target='_blank' rel='noopener noreferrer'>Visit GitHub</a></div></div></section>"
 ].join('');
 
-const canvas = document.getElementById('approved-scene');
+let canvas = document.getElementById('approved-scene');
+let canvasNeedsReplacement = false;
 const loader = document.getElementById('approved-loader');
+const loaderTitle = document.getElementById('scene-status-title');
+const loaderCopy = document.getElementById('scene-status-copy');
+const retryButton = document.getElementById('retry-scene');
 const title = document.getElementById('approved-title');
 const titleButton = document.getElementById('title-button');
 const menuButton = document.getElementById('menu-button');
-const overlay = document.getElementById('approved-overlay-menu');
+const menu = document.getElementById('approved-overlay-menu');
+const previousButton = document.getElementById('approved-prev');
+const nextButton = document.getElementById('approved-next');
 const rail = document.querySelector('.approved-steps-rail');
-overlay.inert = true;
-
-let renderer;
-try {
-  renderer = new THREE.WebGLRenderer({ canvas, alpha: false, antialias: true, powerPreference: 'high-performance' });
-  renderer.setClearColor(0x030507, 1);
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.99;
-  renderer.debug.onShaderError = (gl, program, vert, frag) => {
-    console.error('Particle shader failed:', gl.getShaderInfoLog(vert), gl.getShaderInfoLog(frag));
-  };
-} catch (error) {
-  loader.setAttribute('aria-label', 'This page requires WebGL and hardware acceleration');
-  console.error('WebGL failed to initialize:', error);
-}
+const announcement = document.getElementById('approved-announcement');
+const motionButton = document.getElementById('motion-toggle');
+const qualityButton = document.getElementById('quality-toggle');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x030507);
-// A particle-only scene has no solid surface materials or scene lights.
-// Every visible sculptural point is computed by the custom GPU shader.
-
-const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.03, 300);
+const camera = new THREE.PerspectiveCamera(40, 1, 0.03, 300);
 const urlParams = new URLSearchParams(location.search);
-const idToIndex = Object.fromEntries(chapters.map((c, i) => [c.id, i]));
-const initialIndex = Object.hasOwn(idToIndex, location.hash.slice(1)) ? idToIndex[location.hash.slice(1)] : 0;
+const idToIndex = Object.fromEntries(chapters.map((chapter, index) => [chapter.id, index]));
+const initialIndex = idToIndex[location.hash.slice(1)] ?? 0;
 const capture = urlParams.get('capture');
 const captureStory = capture !== null && Number.isFinite(Number(capture))
   ? THREE.MathUtils.clamp(Number(capture), 0, 3) : null;
 const captureTime = urlParams.get('captureTime');
 const timeOverride = captureTime !== null && Number.isFinite(Number(captureTime)) ? Number(captureTime) : null;
-const state = { story: captureStory ?? initialIndex };
-let targetChapter = initialIndex;
-let reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const frozenCapture = captureStory !== null || timeOverride !== null;
+const state = new Navigation({ initial: captureStory ?? initialIndex });
+const wheelIntent = new WheelIntent();
+const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
+let motionOverride = null;
+let reducedMotion = motionPreference.matches;
 let highQuality = !(matchMedia('(pointer:coarse)').matches || (navigator.deviceMemory || 8) < 4);
+let layout = getViewportLayout(1, 1);
+let renderer, cameraPath, surfaces, ambientField;
 let ready = false;
-let cameraPath, surfaces, ambientField, clock;
-let runningTween, tweenId = 0, wheelLock = false;
+let initializing = false;
+let loadGeneration = 0;
+let loadTimeout;
+let runningTween;
+let frameId = 0;
+let frameCount = 0;
+let startedAt;
+let lastError = null;
+
+const modals = createModalController({
+  root: app,
+  dialogs: app.querySelectorAll('[data-modal]'),
+  fallbackFocus: menuButton,
+  onChange(dialog) {
+    menuButton.setAttribute('aria-expanded', String(dialog === menu));
+    if (dialog) stopFrames();
+    else requestFrame();
+  }
+});
+
+function announce(message) {
+  announcement.textContent = message;
+}
+
+function syncNavigationControls() {
+  previousButton.disabled = state.target === 0;
+  nextButton.disabled = state.target === 3;
+  titleButton.disabled = state.inflight;
+  menu.querySelectorAll('[data-chapter]').forEach(button => {
+    if (Number(button.dataset.chapter) === state.target) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+}
 
 function renderTitle(index) {
   const chapter = chapters[index];
-  title.replaceChildren();
-  chapter.lines.forEach((line, i) => {
-    const element = document.createElement('span');
-    element.className = i === 0 ? 'outline' : 'filled';
-    element.textContent = line;
-    title.appendChild(element);
-  });
-  document.getElementById('approved-prev').disabled = index === 0;
-  document.getElementById('approved-next').disabled = index === 3;
+  title.replaceChildren(...chapter.lines.map((line, lineIndex) => {
+    const span = document.createElement('span');
+    span.className = lineIndex === 0 ? 'outline' : 'filled';
+    span.textContent = line;
+    return span;
+  }));
+  const action = index === 2 ? 'View work' : index === 3 ? 'View contact' : 'Next chapter';
+  titleButton.setAttribute('aria-label', chapter.lines.join(' ') + ': ' + action);
+  if (index >= 2) {
+    titleButton.setAttribute('aria-haspopup', 'dialog');
+    titleButton.setAttribute('aria-controls', index === 2 ? 'work-panel' : 'contact-panel');
+  } else {
+    titleButton.removeAttribute('aria-haspopup');
+    titleButton.removeAttribute('aria-controls');
+  }
+  app.dataset.chapter = chapter.id;
+  syncNavigationControls();
   if (location.hash !== '#' + chapter.id) history.replaceState(null, '', '#' + chapter.id);
 }
-renderTitle(captureStory === null ? initialIndex : Math.round(captureStory));
-if (captureStory !== null && Math.abs(captureStory-Math.round(captureStory)) > 0.02) {
+
+function refreshResolution() {
+  const rect = app.getBoundingClientRect();
+  layout = getViewportLayout(rect.width, rect.height);
+  app.dataset.layout = layout.compact ? 'compact' : 'wide';
+  app.style.setProperty('--title-top', layout.titleTop + 'px');
+  app.style.setProperty('--title-width', layout.titleWidth + 'px');
+  app.style.setProperty('--title-size', layout.titleSize + 'px');
+  app.style.setProperty('--page-gutter', layout.gutter + 'px');
+  app.style.setProperty('--portrait-weight', String(layout.portraitWeight));
+  camera.aspect = layout.aspect;
+  camera.updateProjectionMatrix();
+  if (renderer) {
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, highQuality ? 1.55 : 1));
+    renderer.setSize(layout.width, layout.height, false);
+    surfaces?.quality(!highQuality);
+    surfaces?.setViewportScale(layout.portraitWeight);
+    ambientField?.quality(!highQuality);
+  }
+  requestFrame();
+}
+
+function stopFrames() {
+  if (frameId) cancelAnimationFrame(frameId);
+  frameId = 0;
+}
+
+function requestFrame() {
+  if (!ready || document.hidden || modals.active || frameId) return;
+  frameId = requestAnimationFrame(frame);
+}
+
+function renderScene() {
+  const time = timeOverride ?? (frozenCapture ? 0 : (performance.now() - startedAt) / 1000);
+  cameraPath.sample(camera, state.story, layout.portraitWeight);
+  surfaces.update(time, state.story, !reducedMotion, camera);
+  ambientField.update(time, state.story, !reducedMotion, camera);
+  rail.style.setProperty('--progress', (state.story / 3).toFixed(4));
+  renderer.render(scene, camera);
+  frameCount++;
+}
+
+function frame() {
+  frameId = 0;
+  if (!ready || document.hidden || modals.active) return;
+  try {
+    renderScene();
+  } catch (error) {
+    failRuntime(error, 'The 3D scene was interrupted. You can retry or visit GitHub.');
+    return;
+  }
+  if (!reducedMotion && !frozenCapture) requestFrame();
+}
+
+function applyTransition(transition) {
+  if (!transition) return;
+  runningTween?.kill();
+  runningTween = null;
+  gsap.killTweensOf(titleButton);
+  syncNavigationControls();
+  if (transition.duration === 0) {
+    renderTitle(transition.to);
+    app.classList.remove('is-travelling');
+    gsap.set(titleButton, { opacity: 1, y: 0 });
+    announce(chapters[transition.to].lines.join(' '));
+    requestFrame();
+    return;
+  }
+  const { duration, revision } = transition;
   app.classList.add('is-travelling');
-  titleButton.style.opacity = '0';
+  runningTween = gsap.timeline({
+    paused: document.hidden,
+    onUpdate: requestFrame,
+    onComplete() {
+      if (!state.settle(revision)) return;
+      runningTween = null;
+      renderTitle(transition.to);
+      app.classList.remove('is-travelling');
+      gsap.set(titleButton, { opacity: 1, y: 0 });
+      announce(chapters[transition.to].lines.join(' '));
+      requestFrame();
+    }
+  });
+  runningTween.to(titleButton, { opacity: 0, y: -18, duration: Math.min(0.37, duration * 0.2), ease: 'power2.in' }, 0);
+  // Keep Blender's authored timing: one full adjacent leg is exactly five seconds.
+  runningTween.to(state, { story: transition.to, duration, ease: 'none' }, 0);
+  const reveal = Math.max(0, duration - 0.76);
+  runningTween.call(() => {
+    if (revision !== state.revision) return;
+    renderTitle(transition.to);
+    gsap.set(titleButton, { y: 23 });
+  }, [], reveal);
+  const revealDuration = Math.min(0.65, duration);
+  const revealStart = Math.min(reveal + 0.02, Math.max(0, duration - revealDuration));
+  runningTween.to(titleButton, { opacity: 1, y: 0, duration: revealDuration, ease: 'power2.out' }, revealStart);
+  requestFrame();
 }
-function setMenu(open) {
-  overlay.classList.toggle('show', open);
-  overlay.inert = !open;
-  overlay.setAttribute('aria-hidden', String(!open));
-  menuButton.setAttribute('aria-expanded', String(open));
-  if (open) document.getElementById('close-menu').focus();
-  else menuButton.focus();
+
+function goTo(index) {
+  if (ready) applyTransition(state.goTo(Number(index), { instant: reducedMotion }));
 }
-menuButton.addEventListener('click', () => setMenu(true));
-document.getElementById('close-menu').addEventListener('click', () => setMenu(false));
-overlay.querySelectorAll('[data-chapter]').forEach(button => {
+function step(direction) {
+  if (ready) applyTransition(state.step(direction, { instant: reducedMotion }));
+}
+
+function updatePreferences() {
+  app.dataset.reducedMotion = String(reducedMotion);
+  motionButton.textContent = 'Reduce motion: ' + (reducedMotion ? 'On' : 'Off');
+  motionButton.setAttribute('aria-pressed', String(reducedMotion));
+  qualityButton.textContent = 'Quality: ' + (highQuality ? 'High' : 'Eco');
+  qualityButton.setAttribute('aria-pressed', String(highQuality));
+}
+
+function setReducedMotion(value, explicit = true) {
+  if (explicit) motionOverride = Boolean(value);
+  reducedMotion = Boolean(value);
+  if (reducedMotion) {
+    stopFrames();
+    if (state.inflight) applyTransition(state.goTo(state.target, { instant: true }));
+  }
+  updatePreferences();
+  announce('Reduced motion ' + (reducedMotion ? 'on.' : 'off.'));
+  requestFrame();
+}
+function toggleQuality() {
+  highQuality = !highQuality;
+  updatePreferences();
+  refreshResolution();
+  announce('Quality set to ' + (highQuality ? 'high.' : 'eco.'));
+}
+
+menuButton.addEventListener('click', () => {
+  if (ready) modals.open(menu, { trigger: menuButton });
+});
+app.querySelectorAll('[data-close-panel]').forEach(button => {
+  button.addEventListener('click', () => modals.close());
+});
+menu.querySelectorAll('[data-chapter]').forEach(button => {
   button.addEventListener('click', () => {
-    setMenu(false);
+    modals.close();
     goTo(Number(button.dataset.chapter));
   });
 });
-
-function refreshResolution() {
-  if (!renderer) return;
-  const dpr = Math.min(devicePixelRatio || 1, highQuality ? 1.55 : 1);
-  renderer.setPixelRatio(dpr);
-  renderer.setSize(innerWidth, innerHeight, false);
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
-  surfaces?.quality(!highQuality);
-  surfaces?.setViewportScale(innerWidth<760);
-  ambientField?.quality(!highQuality);
-}
-
-function goTo(nextIndex) {
-  if (!ready) return;
-  const next = THREE.MathUtils.clamp(nextIndex, 0, 3);
-  if (next === targetChapter && Math.abs(next - state.story) < 0.001) return;
-  targetChapter = next;
-  const stamp = ++tweenId;
-  runningTween?.kill();
-  gsap.killTweensOf(titleButton);
-  if (reducedMotion) {
-    state.story = next;
-    renderTitle(next);
-    app.classList.remove('is-travelling');
-    gsap.set(titleButton, { opacity: 1, y: 0 });
-    return;
-  }
-  const duration = Math.max(.25, Math.abs(next - state.story) * 5);
-  app.classList.add('is-travelling');
-  runningTween = gsap.timeline({
-    onComplete() { if (stamp === tweenId) app.classList.remove('is-travelling'); }
-  });
-  runningTween.to(titleButton, { opacity: 0, y: -18, duration: Math.min(.37, duration*.2), ease: 'power2.in' }, 0);
-  // Keep Blender's exact authored timing. Do not apply a second ease function.
-  runningTween.to(state, { story: next, duration, ease: 'none' }, 0);
-  const reveal = Math.max(0, duration - .76);
-  runningTween.call(() => {
-    if (stamp !== tweenId) return;
-    renderTitle(next);
-    gsap.set(titleButton, { y: 23 });
-  }, [], reveal);
-  runningTween.to(titleButton, { opacity: 1, y: 0, duration: .65, ease: 'power2.out' }, reveal + .02);
-}
-const next = () => goTo(targetChapter === 3 ? 0 : targetChapter + 1);
-const previous = () => goTo(Math.max(0, targetChapter-1));
-titleButton.addEventListener('click', next);
-document.getElementById('approved-next').addEventListener('click', next);
-document.getElementById('approved-prev').addEventListener('click', previous);
+titleButton.addEventListener('click', () => {
+  if (!ready || state.inflight) return;
+  if (state.target >= 2) {
+    modals.open(document.getElementById(state.target === 2 ? 'work-panel' : 'contact-panel'), { trigger: titleButton });
+  } else step(1);
+});
+nextButton.addEventListener('click', () => step(1));
+previousButton.addEventListener('click', () => step(-1));
+motionButton.addEventListener('click', () => setReducedMotion(!reducedMotion));
+qualityButton.addEventListener('click', toggleQuality);
+motionPreference.addEventListener('change', event => {
+  if (motionOverride === null) setReducedMotion(event.matches, false);
+});
 
 addEventListener('keydown', event => {
-  if (overlay.classList.contains('show')) {
-    if (event.key === 'Escape') setMenu(false);
-    return;
-  }
-  if (event.key.toLowerCase() === 'q') { highQuality = !highQuality; refreshResolution(); return; }
-  if (event.key.toLowerCase() === 'm') {
-    reducedMotion = !reducedMotion;
-    if (reducedMotion && runningTween) {
-      runningTween.kill();
-      state.story = targetChapter;
-      renderTitle(targetChapter);
-      gsap.set(titleButton, { opacity: 1, y: 0 });
-      app.classList.remove('is-travelling');
-    }
-    return;
-  }
-  if (['ArrowDown', 'ArrowRight', 'PageDown', ' '].includes(event.key)) { event.preventDefault(); next(); }
-  if (['ArrowUp', 'ArrowLeft', 'PageUp'].includes(event.key)) { event.preventDefault(); previous(); }
+  if (!ready || modals.active) return;
+  const intent = getKeyIntent(event);
+  if (!intent) return;
+  event.preventDefault();
+  if (intent === 'next') step(1);
+  else if (intent === 'previous') step(-1);
+  else if (intent === 'quality') toggleQuality();
+  else if (intent === 'motion') setReducedMotion(!reducedMotion);
 });
 addEventListener('wheel', event => {
-  if (!ready || overlay.classList.contains('show') || wheelLock || Math.abs(event.deltaY) < 24) return;
-  wheelLock = true;
-  event.deltaY > 0 ? next() : previous();
-  setTimeout(() => wheelLock = false, 750);
+  if (!ready || modals.active) return;
+  const direction = wheelIntent.push(event, performance.now(), layout.height);
+  if (direction) step(direction);
 }, { passive: true });
-let touchY = 0;
-addEventListener('touchstart', e => { touchY = e.touches[0].clientY; }, { passive: true });
-addEventListener('touchend', e => {
-  if (overlay.classList.contains('show')) return;
-  const d = touchY - e.changedTouches[0].clientY;
-  if (Math.abs(d) > 75) d > 0 ? next() : previous();
+
+let touchStart = null;
+app.addEventListener('touchstart', event => {
+  if (!ready || modals.active || event.touches.length !== 1 || isInteractiveTarget(event.target)) {
+    touchStart = null;
+    return;
+  }
+  const touch = event.touches[0];
+  touchStart = { id: touch.identifier, x: touch.clientX, y: touch.clientY };
 }, { passive: true });
+app.addEventListener('touchend', event => {
+  const start = touchStart;
+  touchStart = null;
+  if (!start || modals.active || event.defaultPrevented) return;
+  const touch = [...event.changedTouches].find(item => item.identifier === start.id);
+  if (!touch) return;
+  const dy = start.y - touch.clientY;
+  const dx = start.x - touch.clientX;
+  if (Math.abs(dy) > 75 && Math.abs(dy) > Math.abs(dx) * 1.25) step(Math.sign(dy));
+}, { passive: true });
+app.addEventListener('touchcancel', () => { touchStart = null; }, { passive: true });
 addEventListener('hashchange', () => {
   const index = idToIndex[location.hash.slice(1)];
   if (index !== undefined) goTo(index);
 });
 addEventListener('resize', refreshResolution);
+const resizeObserver = new ResizeObserver(refreshResolution);
+resizeObserver.observe(app);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopFrames();
+    runningTween?.pause();
+  } else {
+    runningTween?.resume();
+    requestFrame();
+  }
+});
 
-async function initialize() {
-  if (!renderer) return;
+function disposeRuntime() {
+  stopFrames();
+  for (const resource of [surfaces, ambientField]) {
+    if (resource?.group) scene.remove(resource.group);
+    resource?.dispose();
+  }
+  surfaces = ambientField = cameraPath = undefined;
+  renderer?.dispose();
+  renderer = undefined;
+}
+
+function failRuntime(error, message = 'The 3D scene could not be loaded. You can retry or visit GitHub.') {
+  loadGeneration++;
+  clearTimeout(loadTimeout);
+  ready = false;
+  initializing = false;
+  lastError = error instanceof Error ? error.message : String(error);
+  runningTween?.kill();
+  runningTween = null;
+  state.seek(Math.round(state.story));
+  disposeRuntime();
+  loader.classList.add('has-error');
+  loader.querySelector('.approved-loader-mark').hidden = true;
+  loaderTitle.textContent = 'Scene unavailable';
+  loaderCopy.textContent = message;
+  retryButton.hidden = false;
+  modals.open(loader, { canDismiss: false });
+  loaderTitle.focus({ preventScroll: true });
+  console.error('Could not display the approved scene:', error);
+}
+
+function onContextLost(event) {
+  if (event.target !== canvas) return;
+  event.preventDefault();
+  canvasNeedsReplacement = true;
+  if (renderer || initializing) failRuntime(new Error('WebGL context lost'), 'The 3D scene was interrupted. You can retry or visit GitHub.');
+}
+canvas.addEventListener('webglcontextlost', onContextLost);
+
+async function initialize(fromRetry = false) {
+  if (initializing) return;
+  const generation = ++loadGeneration;
+  initializing = true;
+  ready = false;
+  if (canvasNeedsReplacement) {
+    // Disposal cannot restore a lost context. A fresh canvas obtains a new one.
+    // Restore background inert state before cloning, then let the loader record
+    // the replacement in its next modal background snapshot.
+    modals.close({ force: true, restoreFocus: false });
+    const replacement = canvas.cloneNode(false);
+    canvas.removeEventListener('webglcontextlost', onContextLost);
+    canvas.replaceWith(replacement);
+    canvas = replacement;
+    canvas.addEventListener('webglcontextlost', onContextLost);
+    canvasNeedsReplacement = false;
+  }
+  lastError = null;
+  loader.classList.remove('has-error');
+  loader.querySelector('.approved-loader-mark').hidden = false;
+  loaderTitle.textContent = 'Loading scene';
+  loaderCopy.textContent = 'Preparing the camera flight.';
+  retryButton.hidden = true;
+  modals.open(loader, { canDismiss: false });
+  loadTimeout = setTimeout(() => {
+    if (generation === loadGeneration) failRuntime(new Error('Scene load timed out'), 'Loading took too long. You can retry or visit GitHub.');
+  }, 20000);
   try {
+    renderer = new THREE.WebGLRenderer({ canvas, alpha: false, antialias: true, powerPreference: 'high-performance' });
+    if (renderer.getContext().isContextLost()) throw new Error('WebGL context is unavailable');
+    renderer.setClearColor(0x030507, 1);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.99;
+    renderer.debug.onShaderError = (gl, program, vert, frag) => {
+      console.error('Particle shader failed:', gl.getShaderInfoLog(vert), gl.getShaderInfoLog(frag));
+      throw new Error('Particle shader could not be compiled');
+    };
     refreshResolution();
-    [cameraPath, surfaces] = await Promise.all([
-      loadApprovedCamera(), createMorphSculpture(renderer)
+    const currentRenderer = renderer;
+    const [path, sculpture] = await Promise.all([
+      loadApprovedCamera(),
+      createMorphSculpture(currentRenderer).then(resource => {
+        if (generation !== loadGeneration) {
+          resource.dispose();
+          return null;
+        }
+        surfaces = resource;
+        return resource;
+      })
     ]);
+    if (generation !== loadGeneration) return;
+    cameraPath = path;
+    surfaces = sculpture;
     ambientField = createFreeAmbientParticles(renderer, cameraPath.data);
-    // One GPU point cloud now continuously scatters and reforms between
-    // all four Blender model shapes, travelling with the approved camera.
-    // Environmental particles are a separate GPU field, never model targets.
     scene.add(surfaces.group, ambientField.group);
     refreshResolution();
+    startedAt ??= performance.now();
     ready = true;
-    clock = new THREE.Clock();
-    loader.remove();
-    function frame() {
-      requestAnimationFrame(frame);
-      const time = timeOverride ?? clock.getElapsedTime();
-      cameraPath.sample(camera, state.story, innerWidth < 760);
-      surfaces.update(time, state.story, !reducedMotion, camera);
-      ambientField.update(time, state.story, !reducedMotion);
-      rail.style.setProperty('--progress', (state.story / 3).toFixed(4));
-      renderer.render(scene, camera);
+    renderScene();
+    if (generation !== loadGeneration) return;
+    clearTimeout(loadTimeout);
+    initializing = false;
+    modals.close({ force: true, restoreFocus: fromRetry });
+    renderTitle(Math.round(state.story));
+    if (Math.abs(state.story - Math.round(state.story)) > 0.02) {
+      app.classList.add('is-travelling');
+      titleButton.style.opacity = '0';
+      titleButton.disabled = true;
+    } else {
+      app.classList.remove('is-travelling');
+      gsap.set(titleButton, { opacity: 1, y: 0 });
     }
-    frame();
-    if (urlParams.has('debug') || captureStory !== null) window.__LEEQ_DEBUG = {
-      get state() { return state.story; },
-      get camera() { return { position: camera.position.toArray(), quaternion: camera.quaternion.toArray(), fov: camera.fov }; },
-      get meshCount() { let count = 0; scene.traverse(v => { if (v.isMesh) count++; }); return count; },
-      get particleObjectCount() { let count = 0; scene.traverse(v => { if (v.isPoints) count++; }); return count; },
-      get ambientCount() { return ambientField.count; },
-      get surfaceCount() { return surfaces.count; },
-      get morphing() { return surfaces.morphing; },
-      goTo,
-      seek(v) { if (Number.isFinite(Number(v))) state.story = THREE.MathUtils.clamp(Number(v), 0, 3); }
-    };
+    if (!reducedMotion && !frozenCapture) requestFrame();
   } catch (error) {
-    console.error('Could not initialize the approved scene:', error);
-    loader.classList.add('has-error');
-    loader.setAttribute('aria-label', 'Failed to load 3D assets; check browser developer console');
+    if (generation === loadGeneration) failRuntime(error);
   }
 }
+retryButton.addEventListener('click', () => initialize(true));
+
+renderTitle(Math.round(state.story));
+updatePreferences();
+refreshResolution();
+
+if (urlParams.has('debug') || captureStory !== null) window.__LEEQ_DEBUG = {
+  get state() { return state.story; },
+  get camera() { return { position: camera.position.toArray(), quaternion: camera.quaternion.toArray(), fov: camera.fov }; },
+  get meshCount() { let count = 0; scene.traverse(object => { if (object.isMesh) count++; }); return count; },
+  get particleObjectCount() { let count = 0; scene.traverse(object => { if (object.isPoints) count++; }); return count; },
+  get ambientCount() { return ambientField?.count ?? 0; },
+  get surfaceCount() { return surfaces?.count ?? 0; },
+  get morphing() { return surfaces?.morphing ?? false; },
+  get ready() { return ready; },
+  get moving() { return state.inflight; },
+  get target() { return state.target; },
+  get settled() { return state.settled; },
+  get layout() { return { ...layout }; },
+  get highQuality() { return highQuality; },
+  get reducedMotion() { return reducedMotion; },
+  get renderer() { return renderer; },
+  get rendererInfo() { return renderer?.info ?? null; },
+  get frameCount() { return frameCount; },
+  get error() { return lastError; },
+  goTo,
+  seek(value) {
+    const story = Number(value);
+    if (!Number.isFinite(story)) return;
+    runningTween?.kill();
+    runningTween = null;
+    state.seek(story);
+    renderTitle(Math.round(state.story));
+    const betweenStops = Math.abs(state.story - Math.round(state.story)) > 0.02;
+    app.classList.toggle('is-travelling', betweenStops);
+    gsap.set(titleButton, { opacity: betweenStops ? 0 : 1, y: 0 });
+    titleButton.disabled = betweenStops;
+    requestFrame();
+  }
+};
 initialize();
