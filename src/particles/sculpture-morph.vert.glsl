@@ -121,7 +121,7 @@ void main() {
   float wave = sin(dot(surfaceLocal, vec3(0.73, 1.19, 0.58)) - life * 1.22 * uModelControls.w);
   float crossWave = sin(dot(surfaceLocal, vec3(-0.38, 0.46, 1.11)) + life * 0.91 * uModelControls.w);
   float grainPhase = aRandom.x * TAU;
-  float grainScale = mix(0.008 + 0.014 * aRandom.y,
+  float grainScale = mix(0.003 + 0.006 * aRandom.y,
     0.028 + 0.086 * aRandom.y, uLayer);
   vec3 grainDrift = vec3(
     sin(life * uModelControls.w + grainPhase + surfaceLocal.y * 0.24),
@@ -129,15 +129,15 @@ void main() {
     sin(life * 0.77 * uModelControls.w + grainPhase + surfaceLocal.z * 0.31)
   ) * grainScale;
   vec3 livingOffset = normal * (wave * 0.055 + crossWave * 0.026) *
-    mix(0.22, 1.0, uLayer) + grainDrift;
-  livingOffset *= min(1.0, mix(0.036, 0.16, uLayer) /
+    mix(0.08, 1.0, uLayer) + grainDrift;
+  livingOffset *= min(1.0, mix(0.012, 0.16, uLayer) /
     max(0.0001, length(livingOffset)));
   local += livingOffset * uMotion * uModelControls.w * (1.0 - transit.w * 0.38);
 
   // Rock about the current sculpture center, so distant world-space chapters
   // stay framed while the form catches changing blue, amber and white bands.
-  float rockY = sin(life * 0.50 * uModelControls.w) * 0.15 * uMotion * uModelControls.w;
-  float rockZ = sin(life * 0.50 * uModelControls.w + 0.60) * 0.12 * uMotion * uModelControls.w;
+  float rockY = sin(life * 0.50 * uModelControls.w) * 0.06 * uMotion * uModelControls.w;
+  float rockZ = sin(life * 0.50 * uModelControls.w + 0.60) * 0.045 * uMotion * uModelControls.w;
   local = twistZ(twistY(local, rockY), rockZ);
   normal = twistZ(twistY(normal, rockY), rockZ);
 
@@ -187,7 +187,7 @@ void main() {
     aRandom.y * TAU * 3.0), 3.0);
   float naturalTwinkle = mix(0.58, 0.94, pulse) + shimmer * mix(0.035, 0.23, uLayer);
   vTwinkle = 1.0 + (naturalTwinkle - 1.0) * uTwinkleIntensity;
-  float sprite = mix(3.7 + 6.6 * pow(aRandom.y, 1.22),
+  float sprite = mix(2.65 + 3.95 * pow(aRandom.y, 1.22),
     5.4 + 11.0 * pow(aRandom.y, 1.8) + rare * 2.4, uLayer);
   sprite *= 0.86 + 0.24 * vTwinkle;
   float px = sprite * uPixelRatio * projectionScale * (14.0 / max(3.0, depth));
@@ -221,15 +221,17 @@ void main() {
     colorFlow * 1.17 + vec3(5.1, 2.3, 8.4));
 
   vTone = mix(shadeStart.w, shadeEnd.w, t);
-  vBand = clamp(0.5 + colorWave * 0.46 + (aRandom.x - 0.5) * 0.19, 0.0, 1.0);
+  // Material-region tone anchors large color areas; moving noise is secondary.
+  vBand = clamp(0.5 + colorWave * 0.28 + (vTone - 0.5) * 0.36 +
+    (aRandom.x - 0.5) * 0.09, 0.0, 1.0);
   vSilver = clamp(smoothstep(0.64, 0.83, silverNoise) * 0.83 +
     specular * 0.24 + rim * 0.14, 0.0, 0.9);
-  vLight = (0.49 + key * 0.70 + fill * 0.16 + rim * 0.20) *
-    mix(0.82, 1.0, front) * depthShade;
+  vLight = (0.34 + key * 0.93 + fill * 0.18 + rim * 0.27) *
+    mix(0.65, 1.0, front) * depthShade;
   vGlint = (rare * 0.53 + specular * 0.24) * (0.25 + 0.75 * front) *
     (0.65 + 0.45 * vTwinkle);
   vResponse = clamp(response.x * 0.42 + abs(response.y) * 0.57, 0.0, 1.0);
   vAlpha = (0.76 + 0.20 * aRandom.y) *
-    mix(0.08 + transit.w * 0.025, 1.0, front) *
+    mix(mix(0.42, 0.10, uLayer) + transit.w * 0.025, 1.0, front) *
     smoothstep(0.8, 2.8, depth) * (1.0 - transit.w * 0.10);
 }

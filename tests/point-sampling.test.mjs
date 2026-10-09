@@ -110,18 +110,48 @@ test('duplicated hard edge vertices retain their authored face normals', () => {
   assert.ok(samples.some(s=>s.normal[2]===1));
   assert.ok(samples.every(s=>s.normal[0]===1 || s.normal[2]===1));
 });
+test('visible disconnected structural parts keep point coverage without flooding subpixel fragments', () => {
+  const body=triangle(10);
+  const strut=triangle(0.5);
+  strut.points=Float32Array.from(strut.points,(x,i)=>x+(i%3===0?15:0));
+  strut.region='visible support strut';
+  const micro=triangle(0.00001);
+  micro.points=Float32Array.from(micro.points,(x,i)=>x+(i%3===0?17:0));
+  micro.region='subpixel bolt';
+  const samples=api.sampleSurfaceParts(api.prepareSurfaceParts([body,strut,micro]),1000,87);
+  assert.equal(samples.length,1000);
+  const strutCount=samples.filter(p=>p.position[0]>14.9 && p.position[0]<16).length;
+  const microCount=samples.filter(p=>p.position[0]>16.9).length;
+  assert.ok(strutCount>=12,'structural piece receives a reserved minimum');
+  assert.ok(microCount<=5,'tiny pieces do not crowd out the body');
+});
+test('true seams and creases are explicitly sampled but triangulation diagonals are not', () => {
+  const geometry={
+    points:Float32Array.from([0,0,0, 1,0,0, 0,1,0, 0,0,0, 0,1,0, 0,0,1]),
+    ids:Uint32Array.from([0,1,2,3,4,5]),
+    normals:Float32Array.from([0,0,1, 0,0,1, 0,0,1, 1,0,0, 1,0,0, 1,0,0]),
+    region:'crease panels'
+  };
+  const parts=api.prepareSurfaceParts([geometry]);
+  assert.equal(parts.length,1);
+  assert.equal(parts[0].featureEdges.length,5,'4 open borders and 1 shared hard edge');
+  assert.ok(parts[0].featureEdges.some(edge=>edge.faces===2 && edge.minDot<0.1));
+  const samples=api.sampleSurfaceParts(parts,1000,4);
+  const crease=samples.filter(s=>s.position[0]===0 && s.position[2]===0);
+  assert.ok(crease.length>=20,'the real 90-degree crease receives stable contour points');
+});
 test('shipped points preserve all four source bounds and valid quantized normals', () => {
   const binary=readFileSync(new URL('../public/scene/surface-points.bin',import.meta.url));
   const bounds=JSON.parse(readFileSync(new URL('../public/scene/model-bounds.json',import.meta.url),'utf8'));
   assert.equal(binary.toString('ascii',0,4),'STG1');
   assert.equal(binary.readUInt32LE(4),4);
-  assert.equal(binary.readUInt32LE(8),22000);
+  assert.equal(binary.readUInt32LE(8),36000);
   assert.equal(binary.readUInt32LE(12),16);
-  assert.equal(binary.length,1408016);
+  assert.equal(binary.length,16+4*36000*16);
   Object.values(bounds).forEach((source,group)=>{
     const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity],tones=new Set();
-    for(let index=0;index<22000;index++) {
-      const offset=16+(group*22000+index)*16;
+    for(let index=0;index<36000;index++) {
+      const offset=16+(group*36000+index)*16;
       for(let axis=0;axis<3;axis++) {
         const value=binary.readFloatLE(offset+axis*4);
         assert.ok(Number.isFinite(value));

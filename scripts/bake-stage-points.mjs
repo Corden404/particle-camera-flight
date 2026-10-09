@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { prepareSurfaceParts, sampleSurfaceParts, transformVertexNormals } from './point-sampling.mjs';
 
-const COUNT = 22000;
+const COUNT = 36000;
 const started = performance.now();
 // The mesh only exists locally as an ignored build input; runtime ships points only.
 const buffer=readFileSync('reference/generated-camera-source/approved-models.glb');

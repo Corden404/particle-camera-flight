@@ -172,9 +172,9 @@ export async function createMorphSculpture(renderer) {
   const uniformSets = [stableUniforms, livingUniforms];
 
   // Reuse the original pose attributes for both particle passes. No solid mesh:
-  // 76% draw first as a stable, depth-writing visible shell; the remaining 24%
-  // draw afterward as a depth-tested reactive luminous surface.
-  const stableCount = Math.floor(count * 0.76);
+  // 84% of the sampled geometry forms an opaque, depth-tested dotted shell.
+  // The separate 16% sparkling grains never punch holes through its outline.
+  const stableCount = Math.floor(count * 0.84);
   geometry.setDrawRange(0, stableCount);
   const livingGeometry = new THREE.BufferGeometry();
   for (const name of Object.keys(geometry.attributes)) {
@@ -184,8 +184,8 @@ export async function createMorphSculpture(renderer) {
   const sharedVertexShader = vertexShader.replace('#include <particle_interaction>', pointerField);
   const stableMaterial = new THREE.ShaderMaterial({
     uniforms: stableUniforms, vertexShader: sharedVertexShader, fragmentShader,
-    transparent: true, depthTest: true, depthWrite: true,
-    blending: THREE.NormalBlending, toneMapped: false
+    transparent: false, depthTest: true, depthWrite: true,
+    alphaToCoverage: true, toneMapped: false
   });
   const livingMaterial = new THREE.ShaderMaterial({
     uniforms: livingUniforms, vertexShader: sharedVertexShader, fragmentShader,

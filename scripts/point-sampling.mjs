@@ -51,6 +51,7 @@ export function prepareSurfaceParts(primitives) {
     const diagonal=Math.hypot(...max.map((x,i)=>x-min[i]));
     const tolerance=Math.max(1e-8,diagonal*1e-6);
     const parent=Int32Array.from({length:vertices},(_,i)=>i),weld=new Map();
+    const weldedIndices=new Int32Array(vertices);
     function find(i) {
       let root=i; while(parent[root]!==root) root=parent[root];
       while(parent[i]!==i) { const next=parent[i]; parent[i]=root; i=next; }
@@ -59,7 +60,8 @@ export function prepareSurfaceParts(primitives) {
     function join(a,b) { a=find(a); b=find(b); if(a!==b) parent[b]=a; }
     for(let i=0;i<vertices;i++) {
       const key=[0,1,2].map(a=>Math.round((points[i*3+a]-min[a])/tolerance)).join(',');
-      if(weld.has(key)) join(i,weld.get(key)); else weld.set(key,i);
+      if(weld.has(key)) { weldedIndices[i]=weld.get(key); join(i,weldedIndices[i]); }
+      else { weldedIndices[i]=i; weld.set(key,i); }
     }
     const triangles=[];
     for(let i=0;i+2<ids.length;i+=3) {
@@ -91,6 +93,40 @@ export function prepareSurfaceParts(primitives) {
     let component=0;
     for(const part of components.values()) {
       part.region=(primitive.region||'surface')+' / component '+component++;
+      // Sample actual open boundaries and sharp crease edges, not arbitrary
+      // interior triangle borders. Coordinate-welded IDs keep split normals
+      // at hard edges without mistaking UV seams for disconnected geometry.
+      const edges=new Map();
+      for(const triangle of part.triangles) {
+        for(const [a,b] of [[0,1],[1,2],[2,0]]) {
+          const ia=triangle.indices[a],ib=triangle.indices[b];
+          const lo=Math.min(weldedIndices[ia],weldedIndices[ib]);
+          const hi=Math.max(weldedIndices[ia],weldedIndices[ib]);
+          if(lo===hi) continue;
+          const key=lo+','+hi;
+          const found=edges.get(key);
+          if(found) {
+            found.faces++;
+            found.minDot=Math.min(found.minDot,
+              found.normal.reduce((sum,x,axis)=>sum+x*triangle.normal[axis],0));
+          } else {
+            const length=Math.hypot(...[0,1,2].map(axis=>
+              points[ia*3+axis]-points[ib*3+axis]));
+            if(length<=tolerance) continue;
+            edges.set(key,{triangle,edgeSlots:[a,b],normal:triangle.normal,
+              faces:1,minDot:1,length});
+          }
+        }
+      }
+      part.featureEdges=[];
+      let cumulative=0;
+      for(const edge of edges.values()) {
+        if(edge.faces!==1 && edge.minDot>=0.8) continue;
+        cumulative+=edge.length*(edge.faces===1?1:1.25);
+        part.featureEdges.push({...edge,cumulative});
+      }
+      part.featureWeight=cumulative;
+      part.featureCumulative=Float64Array.from(part.featureEdges,edge=>edge.cumulative);
       parts.push(part);
     }
   }
@@ -131,23 +167,70 @@ export function sampleSurfaceParts(parts,count,seed=39143721) {
   if(!Number.isInteger(count)||count<1) throw Error('Invalid surface sample count');
   const total=parts.reduce((sum,part)=>sum+part.weight,0);
   if(!(total>0)||!Number.isFinite(total)) throw Error('No valid surface to sample');
-  const random=generator(seed),allocation=parts.map((part,index)=>{
-    const exact=count*part.weight/total;
-    return {part,index,count:Math.floor(exact),fraction:exact%1};
+  const random=generator(seed);
+  const boundsMin=[Infinity,Infinity,Infinity],boundsMax=[-Infinity,-Infinity,-Infinity];
+  for(const part of parts) for(let axis=0;axis<3;axis++) {
+    boundsMin[axis]=Math.min(boundsMin[axis],part.min[axis]);
+    boundsMax[axis]=Math.max(boundsMax[axis],part.max[axis]);
+  }
+  const sceneDiagonal=Math.max(1e-12,Math.hypot(...boundsMax.map((x,i)=>x-boundsMin[i])));
+  // Area weighting alone can assign zero dots to a dish strut, rover arm or
+  // lunar-module leg. Reserve a small part budget before area distribution.
+  // Tiny subpixel fragments receive just one point; important spans receive
+  // more, without letting hundreds of bolts consume the body.
+  const quotas=parts.map((part,index)=>{
+    const diagonal=Math.hypot(...part.max.map((x,i)=>x-part.min[i]));
+    const share=diagonal/sceneDiagonal;
+    const desired=share>=0.02?12:share>=0.005?5:1;
+    return {part,index,desired,minimum:0};
   });
-  let remaining=count-allocation.reduce((sum,item)=>sum+item.count,0);
+  const minimumBudget=Math.min(count,Math.floor(count*0.20));
+  const desiredTotal=quotas.reduce((sum,q)=>sum+q.desired,0);
+  const multiplier=desiredTotal>minimumBudget?minimumBudget/desiredTotal:1;
+  let reserved=0;
+  for(const quota of quotas) {
+    quota.exact=quota.desired*multiplier;
+    quota.minimum=Math.floor(quota.exact);
+    reserved+=quota.minimum;
+  }
+  const extra=Math.min(minimumBudget-reserved,Math.ceil(desiredTotal*multiplier)-reserved);
+  const byRemainder=[...quotas].sort((a,b)=>
+    (b.exact-b.minimum)-(a.exact-a.minimum)||b.part.weight-a.part.weight||a.index-b.index);
+  for(let i=0;i<extra;i++) {byRemainder[i].minimum++;reserved++;}
+  const free=count-reserved;
+  const allocation=quotas.map(quota=>{
+    const exact=free*quota.part.weight/total;
+    return {part:quota.part,index:quota.index,count:quota.minimum+Math.floor(exact),fraction:exact%1};
+  });
+  const remaining=count-allocation.reduce((sum,item)=>sum+item.count,0);
   const ranked=[...allocation].sort((a,b)=>b.fraction-a.fraction||a.index-b.index);
   for(let i=0;i<remaining;i++) ranked[i].count++;
   const samples=[];
   for(const {part,count:amount} of allocation) {
     const shiftU=random(),shiftV=random(),offset=1+(hash(part.region)^seed)>>>0;
+    const edgeAmount=part.featureWeight>0?Math.floor(amount*0.24):0;
+    const interiorAmount=amount-edgeAmount;
     for(let k=0;k<amount;k++) {
-      // One stratum per candidate in the triangle CDF; Halton barycentrics avoid
-      // the large holes and repeated random clumps of independent RNG sampling.
-      const triangle=part.triangles[findTriangle(part.cumulative,(k+.5)*part.triangleWeight/amount)];
-      const u=Math.sqrt((radicalInverse((offset%1048576)+k+1,2)+shiftU)%1);
-      const v=(radicalInverse((offset%1048576)+k+1,3)+shiftV)%1;
-      const barycentric=[1-u,u*(1-v),u*v], position=[0,0,0],normal=[0,0,0];
+      // Near one quarter of dots follow true boundaries/creases, keeping the
+      // silhouette intact. The remainder retain stratified surface coverage.
+      let triangle,barycentric;
+      if(k<edgeAmount) {
+        const edge=part.featureEdges[findTriangle(part.featureCumulative,
+          (k+0.5)*part.featureWeight/edgeAmount)];
+        const t=(radicalInverse((offset%1048576)+k+1,2)+shiftU)%1;
+        triangle=edge.triangle;
+        barycentric=[0,0,0];
+        barycentric[edge.edgeSlots[0]]=1-t;
+        barycentric[edge.edgeSlots[1]]=t;
+      } else {
+        const index=k-edgeAmount;
+        triangle=part.triangles[findTriangle(part.cumulative,
+          (index+0.5)*part.triangleWeight/interiorAmount)];
+        const u=Math.sqrt((radicalInverse((offset%1048576)+index+1,2)+shiftU)%1);
+        const v=(radicalInverse((offset%1048576)+index+1,3)+shiftV)%1;
+        barycentric=[1-u,u*(1-v),u*v];
+      }
+      const position=[0,0,0],normal=[0,0,0];
       for(let vertex=0;vertex<3;vertex++) {
         const index=triangle.indices[vertex]*3;
         for(let a=0;a<3;a++) {

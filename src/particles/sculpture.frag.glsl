@@ -14,11 +14,11 @@ varying float vTwinkle;
 
 void main() {
   float radius = length(gl_PointCoord - vec2(0.5));
-  if (radius > 0.245) discard;
-
-  // A hard round center with a short antialiased falloff. Wide transparent
-  // sprite margins let the visible grains vary in size without a foggy halo.
-  float grain = 1.0 - smoothstep(0.085, 0.225, radius);
+  // The silhouette pass uses broad, opaque dots with real depth testing.
+  // Reactive specks stay smaller and softly blended above that solid structure.
+  if (radius > mix(0.36, 0.255, uLayer)) discard;
+  float grain = uLayer < 0.5 ? 1.0 - smoothstep(0.29, 0.36, radius) :
+    1.0 - smoothstep(0.09, 0.24, radius);
 
   // Deliberately match the reference's untonemapped sRGB particle palette.
   // These are final display values: applying ACES or another transfer here
@@ -27,7 +27,7 @@ void main() {
   vec3 amber = vec3(0.95686, 0.54902, 0.09412);
   vec3 silver = vec3(0.94, 0.975, 1.0);
   float chapterBias = (uChapterPalette.y - uChapterPalette.x) * 0.055;
-  float warm = smoothstep(0.44, 0.56, vBand + chapterBias);
+  float warm = smoothstep(0.35, 0.65, vBand + chapterBias);
   vec3 color = mix(blue, amber, warm);
   color = mix(color, silver, vSilver);
   // Lower saturation without dimming the form: luminance is conserved, while
@@ -35,13 +35,21 @@ void main() {
   float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
   color = mix(vec3(luminance), color,
     clamp((0.62 + uLayer * 0.04) * uModelControls.x, 0.0, 1.0));
-  float materialValue = mix(0.88, 1.0, smoothstep(0.10, 0.48, vTone));
+  // Body panels, dark recesses and metal details need distinct values.
+  float materialValue = mix(0.58, 1.12, smoothstep(0.10, 0.82, vTone));
   color *= materialValue * vLight * (0.86 + 0.25 * vTwinkle) *
     (1.0 + vResponse * 0.24);
   color += silver * vGlint * 0.34;
   color *= uModelControls.y;
 
-  float opacity = grain * vAlpha * (0.74 + 0.28 * vTwinkle);
-  if (opacity < 0.003) discard;
-  gl_FragColor = vec4(color, opacity);
+  if (uLayer < 0.5) {
+    // Opaque depth-writing grains keep nearer structure in front. MSAA
+    // alpha-to-coverage feathers their edge without sorting transparent dots.
+    if (grain < 0.05) discard;
+    gl_FragColor = vec4(color * (0.77 + 0.23 * vAlpha), grain);
+  } else {
+    float opacity = grain * vAlpha * (0.74 + 0.28 * vTwinkle);
+    if (opacity < 0.003) discard;
+    gl_FragColor = vec4(color, opacity);
+  }
 }

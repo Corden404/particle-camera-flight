@@ -48,7 +48,7 @@ Original ZIP, BLEND and video sources remain under ignored `模型/camera_flight
 | --- | --- |
 | `reference/generated-camera-source/approved-models.glb` | Ignored offline geometry for sampling; never rendered or downloaded by the webpage |
 | `public/scene/camera-path.json` | Unmodified 361 camera samples at 24 FPS across 15 seconds |
-| `public/scene/surface-points.bin` | Four poses of 22,000 sampled points: position, normal and regional tone |
+| `public/scene/surface-points.bin` | Four poses of 36,000 sampled points: position, normal and regional tone |
 | `public/scene/model-bounds.json` | Original model centers and bounds |
 | `public/scene/ASSET_CREDITS.txt` | Model attribution and usage notes |
 
@@ -67,15 +67,15 @@ node scripts/bake-stage-points.mjs
 npm run test:assets
 ```
 
-The baker allocates the exact point budget across connected surface components. Bounded weighting gives small and thin structures more representation. Seeded stratified/Halton sampling, interpolated transformed normals and coherent component/material tones preserve repeatability. Rebaking points does not rewrite the approved camera or bounds.
+The baker allocates the exact point budget across connected surface components. Visible small parts have minimum quotas before area weighting, and 24% of each populated component's dots trace real boundary or sharp-crease edges. Seeded stratified/Halton sampling, interpolated transformed normals and coherent component/material tones preserve repeatability. Rebaking points does not rewrite the approved camera or bounds.
 
 ## Composition and artistic controls
 
 The runtime measures the app rectangle and derives one continuous portrait weight from its aspect ratio. Titles, camera framing and sculpture scale share that weight. There is no abrupt 759/760-pixel camera switch. Wide viewports use the original camera route as their base, with damped pointer parallax added while motion is enabled; portrait dock adjustments fade away during travel.
 
-The sculptures use two morphing `THREE.Points` layers sharing 22,000 points in High (76% stable depth-writing silhouette, 24% reactive surface), with 70% of each layer's draw range in Eco. The atmosphere combines 1,900 colored spatial flecks, 72 near-lens particles and an independent responsive microdot grid. The grid uses 40–300 columns according to viewport width, reduced in Eco. All five draw objects are point clouds, with no solid meshes.
+The sculptures use two morphing `THREE.Points` layers sharing 36,000 points in High (84% opaque, alpha-to-coverage depth-tested silhouette and 16% transparent reactive sparkle), with 70% of each layer's draw range in Eco. The atmosphere combines 1,900 colored spatial flecks, 72 near-lens particles and an independent responsive microdot grid. The grid uses 40–300 columns according to viewport width, reduced in Eco. All five draw objects are point clouds, with no solid meshes.
 
-Blue (`#4089dd`) and amber (`#f48c18`) color regions move across each form, blended toward luminance-matched neutral tones for a softer, lower-saturation finish; background flecks and the responsive microdot grid are desaturated separately. The desaturation weights live in `src/particles/sculpture.frag.glsl` and `src/particles/ApprovedParticleFields.js`. Limited silver highlights and crisp varied grains remain. Particle materials bypass ACES tone mapping to retain those colors. The sculpture emits calibrated display colors directly; the ambient materials convert their linear palette to sRGB. Grain diameters account for viewport height, projection, depth and cursor proximity.
+Blue (`#4089dd`) and amber (`#f48c18`) color regions move across each form, blended toward luminance-matched neutral tones for a softer, lower-saturation finish; background flecks and the responsive microdot grid are desaturated separately. The desaturation weights live in `src/particles/sculpture.frag.glsl` and `src/particles/ApprovedParticleFields.js`. Limited silver highlights and crisp varied grains remain. Particle materials bypass ACES tone mapping to retain those colors. The sculpture emits calibrated display colors directly; the ambient materials convert their linear palette to sRGB. Grain diameters account for viewport height, projection, depth and cursor proximity. Opaque structural dots avoid depth-writing translucent holes; a slower and smaller settled rock/drift preserves the authored outline.
 
 Each of the three legs has its own scatter, swirl direction, bend, lift and camera-focus envelope. The underlying transition remains chapter-phase driven. Continuous bounded drift, traveling surface waves and gentle rocking are added around the current model center, including when a chapter is settled. The microdot grid has its own moving brightness and displacement waves. Pointer position and velocity drive a shared local force with an eight-sample wake that fades over roughly 1.8 seconds; reduced motion disables these offsets.
 
