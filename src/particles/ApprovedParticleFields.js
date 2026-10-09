@@ -139,7 +139,7 @@ export function createFreeAmbientParticles(renderer, cameraData) {
       vec3 disturbance = disturbParticles(mv, response * uMotion);
       gl_Position = projectionMatrix * mv;
       float depth = -mv.z;
-      float size = uLayer < 1.5 ? (4.05 + aSeed.x * 3.06) : (3.9 + aSeed.x * 6.5);
+      float size = uLayer < 1.5 ? (3.6 + aSeed.x * 2.7) : (3.9 + aSeed.x * 6.5);
       float projectionScale = uViewportHeight / 900.0 * projectionMatrix[1][1] / 2.74747742;
       size *= uPixelRatio * projectionScale * (15.0 / max(1.0, depth));
       size *= 1.0 + flow.y * 0.08 * uMotion + clamp(disturbance.z, 0.0, 1.0) * 0.20;
@@ -147,13 +147,14 @@ export function createFreeAmbientParticles(renderer, cameraData) {
         uLayer < 1.5 ? 8.0 * uPixelRatio : 12.0 * uPixelRatio);
       float depthFade = smoothstep(1.4, 4.6, depth) *
         (1.0 - smoothstep(65.0, 105.0, depth));
-      // Non-model flecks are intentionally softer and dimmer, but sparkle at
-      // their own rates. The moving palette remains visible behind the form.
-      float layerStrength = uLayer < 1.5 ? 0.75 : 0.54;
+      // Crisp distant accents contrast with a few softer near-lens grains.
+      // Each fleck keeps its own pulse and brightness, avoiding an even veil.
+      float layerStrength = uLayer < 1.5 ? 0.86 : 0.48;
       float twinkle = 0.5 + 0.5 * sin(clock * (1.8 + aSeed.x * 4.4) +
         aSeed.y * 19.0 + position.x * 0.17);
-      float pulse = 0.50 + 0.50 * twinkle;
-      vAlpha = layerStrength * depthFade * pulse * (0.90 + 0.10 * aSeed.y);
+      float pulse = 0.42 + 0.58 * twinkle;
+      vAlpha = layerStrength * depthFade * pulse *
+        (0.65 + 0.35 * smoothstep(0.58, 0.92, aSeed.y));
       // Blue and amber remain interspersed at every camera stop. A light spatial
       // contribution lets their accents travel without recoloring the whole view.
       vColor = aSeed.z * 0.86 + (0.5 + 0.5 * sin(position.x * 0.055 +
@@ -174,20 +175,20 @@ export function createFreeAmbientParticles(renderer, cameraData) {
 
     void main() {
       float r = length(gl_PointCoord - vec2(0.5));
-      if (r >= 0.50) discard;
-      float core = 1.0 - smoothstep(0.30, 0.49, r);
-      float haze = 1.0 - smoothstep(0.18, 0.50, r);
+      if (r >= (vLayer < 1.5 ? 0.46 : 0.50)) discard;
+      float core = 1.0 - smoothstep(vLayer < 1.5 ? 0.32 : 0.30,
+        vLayer < 1.5 ? 0.45 : 0.49, r);
       float bokeh = exp(-8.0 * r * r) * (1.0 - smoothstep(0.36, 0.50, r));
-      float shape = vLayer < 1.5 ? core * 0.98 + haze * 0.02 : core * 0.82 + bokeh * 0.18;
-      // Linear forms of the reference's electric blue and warm amber.
-      vec3 blue = vec3(0.051, 0.250, 0.723);
-      vec3 amber = vec3(0.905, 0.262, 0.009);
+      float shape = vLayer < 1.5 ? core : core * 0.82 + bokeh * 0.18;
+      // Linear colors become saturated display accents after conversion below.
+      vec3 blue = vec3(0.005, 0.32, 1.0);
+      vec3 amber = vec3(1.0, 0.34, 0.003);
       vec3 silver = vec3(0.73, 0.85, 1.0);
       vec3 tint = mix(blue, amber, smoothstep(0.50, 0.60, vColor));
-      tint = mix(tint, silver, vWhite * 0.80);
+      tint = mix(tint, silver, vWhite * 0.64);
       float neutral = dot(tint, vec3(0.2126, 0.7152, 0.0722));
-      tint = mix(vec3(neutral), tint, clamp(0.46 * uAmbientControls.x, 0.0, 1.0)) *
-        0.62 * uAmbientControls.y;
+      tint = mix(vec3(neutral), tint, clamp(0.88 * uAmbientControls.x, 0.0, 1.0)) *
+        0.82 * uAmbientControls.y;
       float opacity = shape * vAlpha * (1.0 + vWake * 0.30);
       if (opacity < 0.002) discard;
       gl_FragColor = vec4(tint, min(0.98, opacity));
@@ -293,12 +294,12 @@ export function createFreeAmbientParticles(renderer, cameraData) {
         vec3 disturbance = disturbParticles(view, 0.65 * uMotion);
         gl_Position = projectionMatrix * view;
         vWake = clamp(disturbance.x * 0.55 + abs(disturbance.y) * 0.60, 0.0, 1.0);
-        gl_PointSize = (1.05 + 0.12 * (wave * 0.5 + 0.5) + vWake * 0.18) * uPixelRatio;
+        gl_PointSize = (1.15 + 0.14 * (wave * 0.5 + 0.5) + vWake * 0.18) * uPixelRatio;
         float radial = 1.0 - smoothstep(0.48, 1.42,
           length(position.xy * vec2(0.66, 0.82)));
         float grain = 0.65 + 0.35 * gridGrain(position.xy + floor(clock * 8.0));
-        vAlpha = radial * (0.11 + 0.075 * (wave * 0.5 + 0.5) +
-          0.025 * (crossWave * 0.5 + 0.5) + vWake * 0.23) * grain;
+        vAlpha = radial * (0.16 + 0.105 * (wave * 0.5 + 0.5) +
+          0.035 * (crossWave * 0.5 + 0.5) + vWake * 0.23) * grain;
         vTint = 0.5 + 0.5 * sin(q.x * 1.15 + q.y * 0.75 + clock * 0.09 + uStory * 0.35);
       }
     `,
@@ -315,8 +316,8 @@ export function createFreeAmbientParticles(renderer, cameraData) {
         vec3 blue = vec3(0.051, 0.250, 0.723);
         vec3 amber = vec3(0.905, 0.262, 0.009);
         vec3 tint = mix(blue, amber, smoothstep(0.44, 0.69, vTint));
-        vec3 color = mix(vec3(0.15), tint * 0.58, 0.13 + vWake * 0.16);
-        // The microdot raster also loses chroma, including within pointer wakes.
+        vec3 color = mix(vec3(0.20), tint * 0.58, 0.13 + vWake * 0.16);
+        // A mostly neutral microgrid stays distinct from the colored flecks.
         float neutral = dot(color, vec3(0.2126, 0.7152, 0.0722));
         color = mix(vec3(neutral), color, clamp(0.72 * uAmbientControls.x, 0.0, 1.0));
         gl_FragColor = vec4(color, vAlpha * coverage * uAmbientControls.z);

@@ -14,32 +14,32 @@ varying float vTwinkle;
 
 void main() {
   float radius = length(gl_PointCoord - vec2(0.5));
-  // The silhouette pass uses broad, opaque dots with real depth testing.
-  // Reactive specks stay smaller and softly blended above that solid structure.
-  if (radius > mix(0.36, 0.255, uLayer)) discard;
-  float grain = uLayer < 0.5 ? 1.0 - smoothstep(0.29, 0.36, radius) :
-    1.0 - smoothstep(0.09, 0.24, radius);
+  // Fine depth-writing cores preserve the authored surface while leaving
+  // visible gaps between grains. A smaller blended core carries the sparkle.
+  if (radius > mix(0.30, 0.22, uLayer)) discard;
+  float grain = uLayer < 0.5 ? 1.0 - smoothstep(0.23, 0.30, radius) :
+    1.0 - smoothstep(0.07, 0.205, radius);
 
   // Deliberately match the reference's untonemapped sRGB particle palette.
   // These are final display values: applying ACES or another transfer here
   // would wash the saturated blue / amber back into the old silver-only coat.
-  vec3 blue = vec3(0.25098, 0.53725, 0.86667);
-  vec3 amber = vec3(0.95686, 0.54902, 0.09412);
+  vec3 blue = vec3(0.025, 0.58, 1.0);
+  vec3 amber = vec3(1.0, 0.57, 0.025);
   vec3 silver = vec3(0.94, 0.975, 1.0);
   float chapterBias = (uChapterPalette.y - uChapterPalette.x) * 0.055;
-  float warm = smoothstep(0.35, 0.65, vBand + chapterBias);
+  float warm = smoothstep(0.42, 0.58, vBand + chapterBias);
   vec3 color = mix(blue, amber, warm);
   color = mix(color, silver, vSilver);
-  // Lower saturation without dimming the form: luminance is conserved, while
-  // blue and amber remain distinct. The reactive layer is subtly more colorful.
+  // Keep the blue/amber accents vivid at the default multiplier; the live
+  // saturation control still fades them toward their conserved luminance.
   float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
   color = mix(vec3(luminance), color,
-    clamp((0.62 + uLayer * 0.04) * uModelControls.x, 0.0, 1.0));
+    clamp((0.94 + uLayer * 0.06) * uModelControls.x, 0.0, 1.0));
   // Body panels, dark recesses and metal details need distinct values.
-  float materialValue = mix(0.58, 1.12, smoothstep(0.10, 0.82, vTone));
+  float materialValue = mix(0.40, 1.10, smoothstep(0.10, 0.82, vTone));
   color *= materialValue * vLight * (0.86 + 0.25 * vTwinkle) *
     (1.0 + vResponse * 0.24);
-  color += silver * vGlint * 0.34;
+  color += silver * vGlint * 0.50;
   color *= uModelControls.y;
 
   if (uLayer < 0.5) {

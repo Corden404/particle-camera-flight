@@ -187,13 +187,13 @@ void main() {
     aRandom.y * TAU * 3.0), 3.0);
   float naturalTwinkle = mix(0.58, 0.94, pulse) + shimmer * mix(0.035, 0.23, uLayer);
   vTwinkle = 1.0 + (naturalTwinkle - 1.0) * uTwinkleIntensity;
-  float sprite = mix(2.65 + 3.95 * pow(aRandom.y, 1.22),
-    5.4 + 11.0 * pow(aRandom.y, 1.8) + rare * 2.4, uLayer);
+  float sprite = mix(2.30 + 3.20 * pow(aRandom.y, 1.65),
+    4.6 + 9.0 * pow(aRandom.y, 2.0) + rare * 2.4, uLayer);
   sprite *= 0.86 + 0.24 * vTwinkle;
   float px = sprite * uPixelRatio * projectionScale * (14.0 / max(3.0, depth));
   px += response.x * mix(2.4, 7.5, uLayer) * uPixelRatio;
   gl_PointSize = clamp(px * uModelControls.z * (1.0 + transit.w * 0.10),
-    mix(2.0, 3.1, uLayer) * uPixelRatio * uModelControls.z,
+    mix(2.0, 2.8, uLayer) * uPixelRatio * uModelControls.z,
     mix(15.0, 26.0, uLayer) * uPixelRatio * uModelControls.z);
 
   vec3 viewNormal = normalize(normalMatrix * normal);
@@ -208,7 +208,7 @@ void main() {
   float rim = pow(1.0 - abs(facing), 3.0) *
     smoothstep(-0.1, 0.7, dot(viewNormal, rimDirection));
   float specular = pow(max(0.0,
-    dot(viewNormal, normalize(keyDirection + toEye))), 32.0);
+    dot(viewNormal, normalize(keyDirection + toEye))), 48.0);
   float depthShade = mix(1.0, 0.88, smoothstep(8.0, 32.0, depth));
 
   // Spatial color fields move independently of the geometry. Broad saturated
@@ -224,12 +224,16 @@ void main() {
   // Material-region tone anchors large color areas; moving noise is secondary.
   vBand = clamp(0.5 + colorWave * 0.28 + (vTone - 0.5) * 0.36 +
     (aRandom.x - 0.5) * 0.09, 0.0, 1.0);
-  vSilver = clamp(smoothstep(0.64, 0.83, silverNoise) * 0.83 +
-    specular * 0.24 + rim * 0.14, 0.0, 0.9);
-  vLight = (0.34 + key * 0.93 + fill * 0.18 + rim * 0.27) *
-    mix(0.65, 1.0, front) * depthShade;
-  vGlint = (rare * 0.53 + specular * 0.24) * (0.25 + 0.75 * front) *
-    (0.65 + 0.45 * vTwinkle);
+  // Concentrate silver at glints instead of washing broad color fields white.
+  vSilver = clamp(smoothstep(0.68, 0.85, silverNoise) * 0.62 +
+    specular * 0.72 + rare * 0.15 + rim * 0.10, 0.0, 0.94);
+  // Stable, independent grain values break up continuous midtone panels.
+  // The normal-based key and rim still describe thin parts and the silhouette.
+  float grainValue = mix(0.22, 1.60, pow(aRandom.x, 1.5));
+  vLight = (0.19 + pow(key, 1.35) * 1.60 + fill * 0.09 + rim * 0.40) *
+    mix(0.50, 1.0, front) * depthShade * grainValue;
+  vGlint = (rare * 1.35 + specular * 1.05) * (0.16 + 0.84 * front) *
+    (0.55 + 0.55 * vTwinkle);
   vResponse = clamp(response.x * 0.42 + abs(response.y) * 0.57, 0.0, 1.0);
   vAlpha = (0.76 + 0.20 * aRandom.y) *
     mix(mix(0.42, 0.10, uLayer) + transit.w * 0.025, 1.0, front) *
