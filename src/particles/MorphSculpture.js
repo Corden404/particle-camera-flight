@@ -145,8 +145,9 @@ export async function createMorphSculpture(renderer) {
 
   const art = sampleLegEnvelope(0, 0);
   const palette = sampleChapterPalette(0);
-  const uniforms = {
+  const makeUniforms = layer => ({
     ...createInteractionUniforms(),
+    uLayer: { value: layer },
     uTime: { value: 0 },
     uStory: { value: 0 },
     uMotion: { value: 1 },
@@ -163,52 +164,87 @@ export async function createMorphSculpture(renderer) {
     uCenter1: { value: poses[1].center.clone() },
     uCenter2: { value: poses[2].center.clone() },
     uCenter3: { value: poses[3].center.clone() }
-  };
-  const material = new THREE.ShaderMaterial({
-    uniforms,
-    vertexShader: vertexShader.replace('#include <particle_interaction>', pointerField),
-    fragmentShader, transparent: true,
-    depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false
   });
-  const points = new THREE.Points(geometry, material);
-  points.name = 'Single continuous GPU scatter-and-reassemble particle sculpture';
-  points.frustumCulled = false;
-  const group = new THREE.Group();
-  group.name = 'One morphing sculpture; no solid mesh';
-  group.add(points);
+  const stableUniforms = makeUniforms(0);
+  const livingUniforms = makeUniforms(1);
+  const uniformSets = [stableUniforms, livingUniforms];
 
-  const forward = new THREE.Vector3();
-  return {
+  // Reuse the original pose attributes for both particle passes. No solid mesh:
+  // 76% draw first as a stable, depth-writing visible shell; the remaining 24%
+  // draw afterward as a depth-tested reactive luminous surface.
+  const stableCount = Math.floor(count * 0.76);
+  geometry.setDrawRange(0, stableCount);
+  const livingGeometry = new THREE.BufferGeometry();
+  for (const name of Object.keys(geometry.attributes)) {
+    livingGeometry.setAttribute(name, geometry.getAttribute(name));
+  }
+  livingGeometry.setDrawRange(stableCount, count - stableCount);
+  const sharedVertexShader = vertexShader.replace('#include <particle_interaction>', pointerField);
+  const stableMaterial = new THREE.ShaderMaterial({
+    uniforms: stableUniforms, vertexShader: sharedVertexShader, fragmentShader,
+    transparent: true, depthTest: true, depthWrite: true,
+    blending: THREE.NormalBlending, toneMapped: false
+  });
+  const livingMaterial = new THREE.ShaderMaterial({
+    uniforms: livingUniforms, vertexShader: sharedVertexShader, fragmentShader,
+    transparent: true, depthTest: true, depthWrite: false,
+    blending: THREE.NormalBlending, toneMapped: false
+  });
+  const stablePoints = new THREE.Points(geometry, stableMaterial);
+  const livingPoints = new THREE.Points(livingGeometry, livingMaterial);
+  stablePoints.renderOrder = 1;
+  livingPoints.renderOrder = 2;
+  stablePoints.frustumCulled = livingPoints.frustumCulled = false;
+  stablePoints.name = 'Stable depth-writing recognizable particle shell';
+  livingPoints.name = 'Responsive surface grains, color waves and sparkle';
+  const group = new THREE.Group();
+  group.name = 'Two pure point-cloud passes; no solid model mesh';
+  group.add(stablePoints, livingPoints);
+
+  const forward = new THREE.Vector3();  return {
     group,
     count,
     morphing: true,
-    setViewportScale(weight) { uniforms.uModelScale.value = viewportModelScale(weight); },
+    setViewportScale(weight) {
+      for (const uniforms of uniformSets) uniforms.uModelScale.value = viewportModelScale(weight);
+    },
     update(time, story, moving, camera, interaction) {
       const currentStory = Number.isFinite(story) ? Math.min(3, Math.max(0, story)) : 0;
       const leg = Math.min(2, Math.floor(currentStory));
       sampleLegEnvelope(leg, currentStory - leg, art);
       sampleChapterPalette(currentStory, palette);
-      uniforms.uTime.value = moving && Number.isFinite(time) ? time : 0;
-      uniforms.uStory.value = currentStory;
-      uniforms.uMotion.value = moving ? 1 : 0;
-      uniforms.uViewportHeight.value = renderer.domElement.clientHeight || 900;
-      uniforms.uTransit.value.set(art.scatter, art.swirl, art.focus, art.transit);
-      uniforms.uTiming.value.set(art.travelStart, art.travelEnd, art.stagger);
-      uniforms.uStream.value.set(art.bend, art.lift, art.lane);
-      uniforms.uChapterPalette.value.set(palette.cool, palette.warm, palette.lilac);
-      updateInteractionUniforms(uniforms, moving ? interaction : null, camera);
       if (camera) {
-        // Guide the dissolving cloud through the camera's actual field of view;
-        // these are still world-space particles, not a flat screen overlay.
         forward.set(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
-        uniforms.uFlightFocus.value.copy(camera.position).addScaledVector(forward, 12.0);
-        uniforms.uFlightForward.value.copy(forward);
+      }
+      for (const uniforms of uniformSets) {
+        uniforms.uTime.value = moving && Number.isFinite(time) ? time : 0;
+        uniforms.uStory.value = currentStory;
+        uniforms.uMotion.value = moving ? 1 : 0;
+        uniforms.uViewportHeight.value = renderer.domElement.clientHeight || 900;
+        uniforms.uTransit.value.set(art.scatter, art.swirl, art.focus, art.transit);
+        uniforms.uTiming.value.set(art.travelStart, art.travelEnd, art.stagger);
+        uniforms.uStream.value.set(art.bend, art.lift, art.lane);
+        uniforms.uChapterPalette.value.set(palette.cool, palette.warm, palette.lilac);
+        updateInteractionUniforms(uniforms, moving ? interaction : null, camera);
+        if (camera) {
+          // Camera-flight positions remain authored; these parameters only
+          // modulate the particle motion inside the scene.
+          uniforms.uFlightFocus.value.copy(camera.position).addScaledVector(forward, 12.0);
+          uniforms.uFlightForward.value.copy(forward);
+        }
       }
     },
     quality(low) {
-      geometry.setDrawRange(0, low ? Math.floor(count * 0.70) : count);
-      uniforms.uPixelRatio.value = renderer.getPixelRatio();
+      const ratio = low ? 0.70 : 1;
+      geometry.setDrawRange(0, Math.floor(stableCount * ratio));
+      livingGeometry.setDrawRange(stableCount, Math.floor((count - stableCount) * ratio));
+      for (const uniforms of uniformSets) uniforms.uPixelRatio.value = renderer.getPixelRatio();
     },
-    dispose() { geometry.dispose(); material.dispose(); }
+    dispose() {
+      geometry.dispose();
+      livingGeometry.dispose();
+      stableMaterial.dispose();
+      livingMaterial.dispose();
+    }
   };
 }

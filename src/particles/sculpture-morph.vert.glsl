@@ -3,6 +3,7 @@ precision highp float;
 uniform float uTime;
 uniform float uStory;
 uniform float uMotion;
+uniform float uLayer;
 uniform float uPixelRatio;
 uniform float uModelScale;
 uniform float uViewportHeight;
@@ -32,6 +33,7 @@ varying float vAlpha;
 varying float vGlint;
 varying float vSilver;
 varying float vResponse;
+varying float vTwinkle;
 
 #include <particle_interaction>
 
@@ -96,6 +98,9 @@ void main() {
   float t = smoothstep(uTiming.x + departureCue * uTiming.z,
     uTiming.y - targetAnchor * 0.075, phase);
   vec4 transit = uTransit * uMotion;
+  // The luminous outer grains scatter farther than the more stable shell.
+  transit.x *= mix(0.90, 1.25, uLayer);
+  transit.z *= mix(0.94, 1.05, uLayer);
   vec3 stream = uStream * uMotion;
 
   vec3 center = mix(fromCenter, toCenter, t);
@@ -114,14 +119,17 @@ void main() {
   float wave = sin(dot(surfaceLocal, vec3(0.73, 1.19, 0.58)) - life * 1.22);
   float crossWave = sin(dot(surfaceLocal, vec3(-0.38, 0.46, 1.11)) + life * 0.91);
   float grainPhase = aRandom.x * TAU;
-  float grainScale = 0.025 + 0.092 * aRandom.y;
+  float grainScale = mix(0.008 + 0.014 * aRandom.y,
+    0.028 + 0.086 * aRandom.y, uLayer);
   vec3 grainDrift = vec3(
     sin(life + grainPhase + surfaceLocal.y * 0.24),
     cos(life * 0.93 + aRandom.y * TAU + surfaceLocal.x * 0.20),
     sin(life * 0.77 + grainPhase + surfaceLocal.z * 0.31)
   ) * grainScale;
-  vec3 livingOffset = normal * (wave * 0.055 + crossWave * 0.026) + grainDrift;
-  livingOffset *= min(1.0, 0.16 / max(0.0001, length(livingOffset)));
+  vec3 livingOffset = normal * (wave * 0.055 + crossWave * 0.026) *
+    mix(0.22, 1.0, uLayer) + grainDrift;
+  livingOffset *= min(1.0, mix(0.036, 0.16, uLayer) /
+    max(0.0001, length(livingOffset)));
   local += livingOffset * uMotion * (1.0 - transit.w * 0.38);
 
   // Rock about the current sculpture center, so distant world-space chapters
@@ -145,7 +153,10 @@ void main() {
     dot(localStart, vec3(0.36, 0.62, 0.18)) + aRandom.x * 25.0;
 
   vec3 p = center + local;
-  p += radial * transit.x * (0.18 + 0.38 * aRandom.y);
+  // Full-particle spread is larger during flight, but exactly zero at stops.
+  p += radial * transit.x * (0.44 + 0.88 * aRandom.y);
+  p += vec3(sin(phaseNoise * 1.13), sin(phaseNoise * 0.71 + 2.1),
+    cos(phaseNoise * 0.89)) * transit.w * (0.20 + 0.37 * aRandom.y);
   p += across * (stream.x * (0.55 + 0.45 * aRandom.x) +
     transit.x * sin(phaseNoise * 0.71) * 0.22);
   p += streamUp * stream.y * (0.4 + 0.6 * targetAnchor);
@@ -167,12 +178,20 @@ void main() {
 
   // Small, crisp grains dominate; a few larger grains and the cursor wake
   // provide the irregular sparkle seen in the reference rather than a fine net.
-  float sprite = 4.50 + 12.0 * pow(aRandom.y, 1.8) + rare * 2.2;
-  sprite *= 1.0 + sin(life * 5.0 + grainPhase) * 0.10 * uMotion;
+  // Independently timed scintillation: lots of fine stable grains and a few
+  // brighter moving grains, not one synchronized on/off flash.
+  float pulse = 0.5 + 0.5 * sin(life * (1.6 + 4.1 * aRandom.y) + grainPhase);
+  float shimmer = pow(0.5 + 0.5 * sin(life * (0.55 + 2.3 * aRandom.x) +
+    aRandom.y * TAU * 3.0), 3.0);
+  vTwinkle = mix(0.58, 0.94, pulse) + shimmer * mix(0.035, 0.23, uLayer);
+  float sprite = mix(3.7 + 6.6 * pow(aRandom.y, 1.22),
+    5.4 + 11.0 * pow(aRandom.y, 1.8) + rare * 2.4, uLayer);
+  sprite *= 0.86 + 0.24 * vTwinkle;
   float px = sprite * uPixelRatio * projectionScale * (14.0 / max(3.0, depth));
-  px += response.x * 7.0 * uPixelRatio;
+  px += response.x * mix(2.4, 7.5, uLayer) * uPixelRatio;
   gl_PointSize = clamp(px * (1.0 + transit.w * 0.10),
-    3.5 * uPixelRatio, 26.0 * uPixelRatio);
+    mix(2.0, 3.1, uLayer) * uPixelRatio,
+    mix(15.0, 26.0, uLayer) * uPixelRatio);
 
   vec3 viewNormal = normalize(normalMatrix * normal);
   vec3 toEye = normalize(-view.xyz);
@@ -202,12 +221,12 @@ void main() {
   vBand = clamp(0.5 + colorWave * 0.46 + (aRandom.x - 0.5) * 0.19, 0.0, 1.0);
   vSilver = clamp(smoothstep(0.64, 0.83, silverNoise) * 0.83 +
     specular * 0.24 + rim * 0.14, 0.0, 0.9);
-  vLight = (0.43 + key * 0.68 + fill * 0.16 + rim * 0.20) *
+  vLight = (0.49 + key * 0.70 + fill * 0.16 + rim * 0.20) *
     mix(0.82, 1.0, front) * depthShade;
   vGlint = (rare * 0.53 + specular * 0.24) * (0.25 + 0.75 * front) *
-    (0.75 + 0.25 * sin(life * 0.95 + grainPhase));
-  vResponse = clamp(response.x * 0.48 + abs(response.y) * 0.30, 0.0, 1.0);
-  vAlpha = (0.72 + 0.24 * aRandom.y) *
-    mix(0.21 + transit.w * 0.035, 1.0, front) *
-    smoothstep(0.8, 2.8, depth) * (1.0 - transit.w * 0.12);
+    (0.65 + 0.45 * vTwinkle);
+  vResponse = clamp(response.x * 0.42 + abs(response.y) * 0.57, 0.0, 1.0);
+  vAlpha = (0.76 + 0.20 * aRandom.y) *
+    mix(0.08 + transit.w * 0.025, 1.0, front) *
+    smoothstep(0.8, 2.8, depth) * (1.0 - transit.w * 0.10);
 }

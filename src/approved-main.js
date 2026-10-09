@@ -195,10 +195,16 @@ function renderScene() {
   const time = timeOverride ?? (frozenCapture ? 0 : (performance.now() - startedAt) / 1000);
   const interaction = pointerField.update(performance.now() / 1000, !reducedMotion);
   cameraPath.sample(camera, state.story, layout.portraitWeight);
-  // Add damped depth parallax to the authored flight, keeping each base pose.
-  const parallax = reducedMotion ? 0 : interaction.energy * (1 - layout.portraitWeight * 0.55);
+  // Local parallax overlays the original Blender pose; the camera samples
+  // remain unchanged. Pointer X, Y and velocity all contribute to dolly depth.
+  const parallax = reducedMotion ? 0 : interaction.energy *
+    (1 - layout.portraitWeight * 0.55) * (state.inflight ? 0.46 : 1);
   camera.translateX(interaction.pointer.x * parallax * 1.05);
   camera.translateY(interaction.pointer.y * parallax * 0.65);
+  camera.translateZ(THREE.MathUtils.clamp((
+    -interaction.pointer.y * 1.38 + interaction.pointer.x * 0.92 +
+    interaction.velocity.x * 0.13 + interaction.velocity.y * 0.11
+  ) * parallax, -0.90, 0.90));
   surfaces.update(time, state.story, !reducedMotion, camera, interaction);
   ambientField.update(time, state.story, !reducedMotion, camera, interaction);
   rail.style.setProperty('--progress', (state.story / 3).toFixed(4));
@@ -349,6 +355,18 @@ app.addEventListener('pointermove', event => {
   requestFrame();
 }, { passive: true });
 app.addEventListener('pointerleave', () => pointerField.leave(), { passive: true });
+// Mouse left button fires exactly one expanding ripple without requiring a drag.
+app.addEventListener('pointerdown', event => {
+  if (!ready || reducedMotion || modals.active || event.button !== 0 ||
+    isInteractiveTarget(event.target)) return;
+  const rect = app.getBoundingClientRect();
+  pointerField.click(
+    (event.clientX - rect.left) / rect.width * 2 - 1,
+    1 - (event.clientY - rect.top) / rect.height * 2,
+    performance.now() / 1000
+  );
+  requestFrame();
+}, { passive: true });
 addEventListener('blur', () => pointerField.leave());
 
 let touchStart = null;

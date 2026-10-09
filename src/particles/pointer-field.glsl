@@ -2,6 +2,7 @@ uniform vec4 uPointer;
 uniform float uPointerEnergy;
 uniform float uAspect;
 uniform vec4 uPointerTrail[8];
+uniform vec4 uClickRipple;
 
 // Disturb in projected coordinates, then return to view space. A close particle
 // and a distant particle respond under the same screen-space brush.
@@ -33,6 +34,18 @@ vec3 disturbParticles(inout vec4 view, float response) {
       offset += ringDelta / max(0.015, radius) * wave * 0.035;
       rippleLight += abs(wave);
     }
+  }
+  // Single click: one visible outgoing ring, distinct from pointer travel.
+  if (uClickRipple.w > 0.001 && uClickRipple.z < 1.65) {
+    vec2 clickDelta = (screen - uClickRipple.xy) * metric;
+    float radius = length(clickDelta);
+    float front = 0.02 + uClickRipple.z * 0.76;
+    float width = 0.092 + uClickRipple.z * 0.030;
+    float band = (radius - front) / width;
+    float ring = exp(-band * band) * exp(-uClickRipple.z * 1.55) * uClickRipple.w;
+    float wave = sin((radius - front) * 23.0 + 0.5) * ring;
+    offset += clickDelta / max(0.012, radius) * wave * 0.091;
+    rippleLight += ring * 1.75;
   }
   float amount = length(offset);
   offset *= min(1.0, 0.15 / max(0.001, amount));

@@ -33,7 +33,7 @@ test('all three legs remain finite and bounded through release and early gatheri
       const state = sample(leg, phase);
       assert.ok(Object.values(state).every(Number.isFinite), `non-finite leg ${leg}, phase ${phase}`);
       assert.ok(state.transit >= 0 && state.transit <= 1);
-      assert.ok(state.scatter >= 0 && state.scatter <= 1.3);
+      assert.ok(state.scatter >= 0 && state.scatter <= 1.6);
       assert.ok(Math.abs(state.swirl) <= 0.85);
       assert.ok(state.focus >= 0 && state.focus <= 0.66);
       assert.ok(Math.abs(state.bend) <= 1.0 && Math.abs(state.lift) <= 1.0);

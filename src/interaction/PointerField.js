@@ -9,6 +9,8 @@ export class PointerField {
     this.velocity = new THREE.Vector2();
     this.energy = 0;
     this.trail = Array.from({ length: POINTER_TRAIL_SIZE }, () => new THREE.Vector4(10, 10, 10, 0));
+    // A left click makes one distinct expanding ring, even when the pointer is still.
+    this.clickRipple = new THREE.Vector4(10, 10, 10, 0);
     this.target = new THREE.Vector2(10, 10);
     this.inputVelocity = new THREE.Vector2();
     this.lastTrail = new THREE.Vector2(10, 10);
@@ -47,6 +49,12 @@ export class PointerField {
     }
   }
 
+  click(x, y, time) {
+    if (![x, y, time].every(Number.isFinite)) return;
+    this.move(x, y, time);
+    this.clickRipple.set(this.target.x, this.target.y, 0, 1);
+  }
+
   leave() {
     this.inside = false;
     this.inputVelocity.set(0, 0);
@@ -59,6 +67,7 @@ export class PointerField {
     if (!enabled) {
       this.energy = 0;
       this.velocity.set(0, 0);
+      this.clickRipple.set(10, 10, 10, 0);
       for (const sample of this.trail) sample.set(10, 10, 10, 0);
       return this;
     }
@@ -74,6 +83,8 @@ export class PointerField {
       sample.z += dt;
       if (sample.z > 1.8) sample.w = 0;
     }
+    this.clickRipple.z += dt;
+    if (this.clickRipple.z > 1.65) this.clickRipple.w = 0;
     return this;
   }
 }

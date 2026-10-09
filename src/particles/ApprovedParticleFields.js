@@ -147,9 +147,13 @@ export function createFreeAmbientParticles(renderer, cameraData) {
         uLayer < 1.5 ? 8.0 * uPixelRatio : 12.0 * uPixelRatio);
       float depthFade = smoothstep(1.4, 4.6, depth) *
         (1.0 - smoothstep(65.0, 105.0, depth));
-      float layerStrength = uLayer < 1.5 ? 0.98 : 0.72;
-      float pulse = 0.97 + 0.03 * sin(clock * 0.87 + p.y * 0.19 + p.x * 0.11);
-      vAlpha = layerStrength * depthFade * pulse * (0.93 + 0.07 * aSeed.y);
+      // Non-model flecks are intentionally softer and dimmer, but sparkle at
+      // their own rates. The moving palette remains visible behind the form.
+      float layerStrength = uLayer < 1.5 ? 0.75 : 0.54;
+      float twinkle = 0.5 + 0.5 * sin(clock * (1.8 + aSeed.x * 4.4) +
+        aSeed.y * 19.0 + position.x * 0.17);
+      float pulse = 0.50 + 0.50 * twinkle;
+      vAlpha = layerStrength * depthFade * pulse * (0.90 + 0.10 * aSeed.y);
       // Blue and amber remain interspersed at every camera stop. A light spatial
       // contribution lets their accents travel without recoloring the whole view.
       vColor = aSeed.z * 0.86 + (0.5 + 0.5 * sin(position.x * 0.055 +
@@ -180,7 +184,9 @@ export function createFreeAmbientParticles(renderer, cameraData) {
       vec3 silver = vec3(0.73, 0.85, 1.0);
       vec3 tint = mix(blue, amber, smoothstep(0.50, 0.60, vColor));
       tint = mix(tint, silver, vWhite * 0.80);
-      float opacity = shape * vAlpha * (1.0 + vWake * 0.34);
+      float neutral = dot(tint, vec3(0.2126, 0.7152, 0.0722));
+      tint = mix(vec3(neutral), tint, 0.64) * 0.62;
+      float opacity = shape * vAlpha * (1.0 + vWake * 0.30);
       if (opacity < 0.002) discard;
       gl_FragColor = vec4(tint, min(0.98, opacity));
       #include <colorspace_fragment>
@@ -286,9 +292,9 @@ export function createFreeAmbientParticles(renderer, cameraData) {
         gl_PointSize = (1.05 + 0.12 * (wave * 0.5 + 0.5) + vWake * 0.18) * uPixelRatio;
         float radial = 1.0 - smoothstep(0.48, 1.42,
           length(position.xy * vec2(0.66, 0.82)));
-        float grain = 0.90 + 0.10 * gridGrain(position.xy + floor(clock * 12.0));
-        vAlpha = radial * (0.15 + 0.095 * (wave * 0.5 + 0.5) +
-          0.045 * (crossWave * 0.5 + 0.5) + vWake * 0.24) * grain;
+        float grain = 0.65 + 0.35 * gridGrain(position.xy + floor(clock * 8.0));
+        vAlpha = radial * (0.11 + 0.075 * (wave * 0.5 + 0.5) +
+          0.025 * (crossWave * 0.5 + 0.5) + vWake * 0.23) * grain;
         vTint = 0.5 + 0.5 * sin(q.x * 1.15 + q.y * 0.75 + clock * 0.09 + uStory * 0.35);
       }
     `,
@@ -304,7 +310,7 @@ export function createFreeAmbientParticles(renderer, cameraData) {
         vec3 blue = vec3(0.051, 0.250, 0.723);
         vec3 amber = vec3(0.905, 0.262, 0.009);
         vec3 tint = mix(blue, amber, smoothstep(0.44, 0.69, vTint));
-        vec3 color = mix(vec3(0.26), tint, 0.20 + vWake * 0.20);
+        vec3 color = mix(vec3(0.15), tint * 0.58, 0.13 + vWake * 0.16);
         gl_FragColor = vec4(color, vAlpha * coverage);
         #include <colorspace_fragment>
       }

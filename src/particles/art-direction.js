@@ -4,19 +4,19 @@ const LEGS = [
   {
     releaseStart: 0.045, releaseEnd: 0.25, gatherStart: 0.43, gatherEnd: 0.80,
     focusStart: 0.055, focusEnd: 0.29, focusGatherStart: 0.46, focusGatherEnd: 0.84,
-    scatter: 0.96, swirl: 0.64, focus: 0.52, bend: -0.72, lift: 0.65, lane: 0.72,
+    scatter: 1.38, swirl: 0.64, focus: 0.52, bend: -0.72, lift: 0.65, lane: 0.72,
     travelStart: 0.035, travelEnd: 0.79, stagger: 0.15, calm: 0.44
   },
   {
     releaseStart: 0.035, releaseEnd: 0.22, gatherStart: 0.39, gatherEnd: 0.76,
     focusStart: 0.04, focusEnd: 0.26, focusGatherStart: 0.43, focusGatherEnd: 0.82,
-    scatter: 1.16, swirl: -0.48, focus: 0.62, bend: 0.85, lift: -0.32, lane: 1.0,
+    scatter: 1.56, swirl: -0.48, focus: 0.62, bend: 0.85, lift: -0.32, lane: 1.0,
     travelStart: 0.025, travelEnd: 0.78, stagger: 0.18, calm: 0.62
   },
   {
     releaseStart: 0.06, releaseEnd: 0.28, gatherStart: 0.45, gatherEnd: 0.82,
     focusStart: 0.07, focusEnd: 0.30, focusGatherStart: 0.48, focusGatherEnd: 0.86,
-    scatter: 0.78, swirl: 0.38, focus: 0.46, bend: 0.50, lift: 0.82, lane: 0.62,
+    scatter: 1.22, swirl: 0.38, focus: 0.46, bend: 0.50, lift: 0.82, lane: 0.62,
     travelStart: 0.045, travelEnd: 0.81, stagger: 0.13, calm: 0.48
   }
 ];
