@@ -30,7 +30,11 @@ export async function loadApprovedCamera() {
   const pose0 = new THREE.Quaternion(), pose1 = new THREE.Quaternion();
   const from = new THREE.Vector3(), to = new THREE.Vector3();
 
-  function sample(camera, chapterPosition, portrait = false) {
+  let lastCamera, lastFov, lastAspect, lastNear, lastFar;
+  const diagnosticPose = { chapter: 0, timeSeconds: 0, indexBefore: 0, progressThroughFlight: 0, position: [0,0,0], quaternion: [0,0,0,1] };
+
+  function sample(camera, chapterPosition, portrait = 0) {
+    const portraitWeight = THREE.MathUtils.clamp(Number(portrait) || 0, 0, 1);
     const story = THREE.MathUtils.clamp(chapterPosition, 0, 3);
     const frame = story * 120;
     const a = Math.min(360, Math.floor(frame));
@@ -50,19 +54,20 @@ export async function loadApprovedCamera() {
     const aspect = Math.max(0.7,camera.aspect);
     const authoredAspect = 16/9;
     const vfov = THREE.MathUtils.degToRad(data.verticalFov);
-    camera.fov = portrait ? 47 : THREE.MathUtils.radToDeg(
+    const wideFov = THREE.MathUtils.radToDeg(
       2*Math.atan(Math.tan(vfov*0.5)*Math.max(1,authoredAspect/aspect))
     );
+    camera.fov = THREE.MathUtils.lerp(wideFov, 47, portraitWeight);
     camera.near = 0.03;
     camera.far = 300;
 
-    if (portrait) {
+    if (portraitWeight > 0) {
       // The authored 16:9 composition is deliberately preserved on desktop.
       // Portrait screens require more camera clearance around broad sculptures.
       // Only near docking poses, smoothly back away and recenter to prevent cropping.
       const stage = Math.round(story);
       const delta = Math.abs(story-stage);
-      const weight = Math.pow(1-THREE.MathUtils.smoothstep(delta,0,0.48),2);
+      const weight = portraitWeight * Math.pow(1-THREE.MathUtils.smoothstep(delta,0,0.48),2);
       _center.copy(centers[stage]);
       _desired.copy(camera.position).sub(_center).multiplyScalar(1.85).add(_center);
       _targetRotation.setFromRotationMatrix(_basis.lookAt(_desired,_center,_worldUp));
@@ -71,15 +76,22 @@ export async function loadApprovedCamera() {
       camera.position.lerp(_desired,weight);
       camera.quaternion.slerp(_targetRotation,weight);
     }
-    camera.updateProjectionMatrix();
-    return {
-      chapter: story,
-      timeSeconds: story*5,
-      indexBefore: Math.min(3,Math.floor(story)),
-      progressThroughFlight: story%1,
-      position: camera.position.toArray(),
-      quaternion: camera.quaternion.toArray()
-    };
+    if (camera !== lastCamera || camera.fov !== lastFov || camera.aspect !== lastAspect || camera.near !== lastNear || camera.far !== lastFar) {
+      camera.updateProjectionMatrix();
+      lastCamera = camera;
+      lastFov = camera.fov;
+      lastAspect = camera.aspect;
+      lastNear = camera.near;
+      lastFar = camera.far;
+    }
+    // Reuse the diagnostic view; the normal render loop ignores this result.
+    diagnosticPose.chapter = story;
+    diagnosticPose.timeSeconds = story * 5;
+    diagnosticPose.indexBefore = Math.min(3, Math.floor(story));
+    diagnosticPose.progressThroughFlight = story % 1;
+    camera.position.toArray(diagnosticPose.position);
+    camera.quaternion.toArray(diagnosticPose.quaternion);
+    return diagnosticPose;
   }
   return {sample, data, centers};
 }
