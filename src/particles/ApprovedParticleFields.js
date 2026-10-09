@@ -185,7 +185,7 @@ export function createFreeAmbientParticles(renderer, cameraData) {
       vec3 tint = mix(blue, amber, smoothstep(0.50, 0.60, vColor));
       tint = mix(tint, silver, vWhite * 0.80);
       float neutral = dot(tint, vec3(0.2126, 0.7152, 0.0722));
-      tint = mix(vec3(neutral), tint, 0.64) * 0.62;
+      tint = mix(vec3(neutral), tint, 0.46) * 0.62;
       float opacity = shape * vAlpha * (1.0 + vWake * 0.30);
       if (opacity < 0.002) discard;
       gl_FragColor = vec4(tint, min(0.98, opacity));
@@ -311,6 +311,9 @@ export function createFreeAmbientParticles(renderer, cameraData) {
         vec3 amber = vec3(0.905, 0.262, 0.009);
         vec3 tint = mix(blue, amber, smoothstep(0.44, 0.69, vTint));
         vec3 color = mix(vec3(0.15), tint * 0.58, 0.13 + vWake * 0.16);
+        // The microdot raster also loses chroma, including within pointer wakes.
+        float neutral = dot(color, vec3(0.2126, 0.7152, 0.0722));
+        color = mix(vec3(neutral), color, 0.72);
         gl_FragColor = vec4(color, vAlpha * coverage);
         #include <colorspace_fragment>
       }

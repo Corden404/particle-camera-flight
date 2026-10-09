@@ -29,10 +29,10 @@ void main() {
   float warm = smoothstep(0.44, 0.56, vBand + chapterBias);
   vec3 color = mix(blue, amber, warm);
   color = mix(color, silver, vSilver);
-  // Slightly mute the sculpture, while preserving distinct traveling blue and
-  // amber fields. A small spectral difference distinguishes the active layer.
+  // Lower saturation without dimming the form: luminance is conserved, while
+  // blue and amber remain distinct. The reactive layer is subtly more colorful.
   float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
-  color = mix(vec3(luminance), color, 0.84 + uLayer * 0.04);
+  color = mix(vec3(luminance), color, 0.62 + uLayer * 0.04);
   float materialValue = mix(0.88, 1.0, smoothstep(0.10, 0.48, vTone));
   color *= materialValue * vLight * (0.86 + 0.25 * vTwinkle) *
     (1.0 + vResponse * 0.24);
