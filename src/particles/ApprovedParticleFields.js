@@ -165,6 +165,7 @@ export function createFreeAmbientParticles(renderer, cameraData) {
   `;
   const fragmentShader = `
     precision highp float;
+    uniform vec3 uAmbientControls; // saturation, brightness, grid brightness
     varying float vAlpha;
     varying float vColor;
     varying float vWhite;
@@ -185,7 +186,8 @@ export function createFreeAmbientParticles(renderer, cameraData) {
       vec3 tint = mix(blue, amber, smoothstep(0.50, 0.60, vColor));
       tint = mix(tint, silver, vWhite * 0.80);
       float neutral = dot(tint, vec3(0.2126, 0.7152, 0.0722));
-      tint = mix(vec3(neutral), tint, 0.46) * 0.62;
+      tint = mix(vec3(neutral), tint, clamp(0.46 * uAmbientControls.x, 0.0, 1.0)) *
+        0.62 * uAmbientControls.y;
       float opacity = shape * vAlpha * (1.0 + vWake * 0.30);
       if (opacity < 0.002) discard;
       gl_FragColor = vec4(tint, min(0.98, opacity));
@@ -233,6 +235,7 @@ export function createFreeAmbientParticles(renderer, cameraData) {
       uTime: { value: 0 }, uStory: { value: 0 }, uMotion: { value: 1 },
       uPixelRatio: { value: renderer.getPixelRatio() }, uLayer: { value: layer.mode },
       uViewportHeight: { value: renderer.domElement.clientHeight || 900 }, uTransit: { value: 0 },
+      uAmbientControls: { value: new THREE.Vector3(1, 1, 1) },
       ...createInteractionUniforms()
     };
     const material = new THREE.ShaderMaterial({
@@ -254,6 +257,7 @@ export function createFreeAmbientParticles(renderer, cameraData) {
   const gridUniforms = {
     uTime: { value: 0 }, uStory: { value: 0 }, uMotion: { value: 1 },
     uPixelRatio: { value: renderer.getPixelRatio() },
+    uAmbientControls: { value: new THREE.Vector3(1, 1, 1) },
     ...createInteractionUniforms()
   };
   const gridMaterial = new THREE.ShaderMaterial({
@@ -300,6 +304,7 @@ export function createFreeAmbientParticles(renderer, cameraData) {
     `,
     fragmentShader: `
       precision highp float;
+      uniform vec3 uAmbientControls; // saturation, brightness, grid brightness
       varying float vAlpha;
       varying float vTint;
       varying float vWake;
@@ -313,8 +318,8 @@ export function createFreeAmbientParticles(renderer, cameraData) {
         vec3 color = mix(vec3(0.15), tint * 0.58, 0.13 + vWake * 0.16);
         // The microdot raster also loses chroma, including within pointer wakes.
         float neutral = dot(color, vec3(0.2126, 0.7152, 0.0722));
-        color = mix(vec3(neutral), color, 0.72);
-        gl_FragColor = vec4(color, vAlpha * coverage);
+        color = mix(vec3(neutral), color, clamp(0.72 * uAmbientControls.x, 0.0, 1.0));
+        gl_FragColor = vec4(color, vAlpha * coverage * uAmbientControls.z);
         #include <colorspace_fragment>
       }
     `
@@ -353,11 +358,19 @@ export function createFreeAmbientParticles(renderer, cameraData) {
   }
   resizeGrid();
   const allUniforms = [...uniformsList, gridUniforms];
+  let density = 1;
+  let lowQuality = false;
+  function updateDensity() {
+    pointsList.forEach((obj, i) => {
+      const ratio = lowQuality ? (layers[i].mode === 2 ? 0.55 : 0.75) : 1;
+      obj.geometry.setDrawRange(0, Math.floor(layers[i].count * ratio * density));
+    });
+  }
 
   return {
     group,
     get count() { return layers.reduce((total, layer) => total + layer.count, 0) + grid.geometry.getAttribute('position').count; },
-    update(time, story, motion, camera, interaction) {
+    update(time, story, motion, camera, interaction, settings) {
       const currentStory = Number.isFinite(story) ? Math.min(3, Math.max(0, story)) : 0;
       const leg = Math.min(2, Math.floor(currentStory));
       sampleLegEnvelope(leg, currentStory - leg, art);
@@ -369,14 +382,19 @@ export function createFreeAmbientParticles(renderer, cameraData) {
         uniforms.uMotion.value = motion ? 1 : 0;
         if (uniforms.uViewportHeight) uniforms.uViewportHeight.value = viewportHeight;
         if (uniforms.uTransit) uniforms.uTransit.value = art.transit;
-        updateInteractionUniforms(uniforms, motion ? interaction : null, camera);
+        uniforms.uAmbientControls.value.set(settings?.ambientSaturation ?? 1,
+          settings?.ambientBrightness ?? 1, settings?.gridBrightness ?? 1);
+        updateInteractionUniforms(uniforms, motion ? interaction : null, camera, settings);
       }
     },
+    setDensity(next) {
+      density = Number.isFinite(next) ? Math.max(0, Math.min(1, next)) : 1;
+      updateDensity();
+    },
     quality(low) {
-      pointsList.forEach((obj, i) => {
-        obj.geometry.setDrawRange(0, Math.floor(layers[i].count * (low ? layers[i].mode === 2 ? 0.55 : 0.75 : 1.0)));
-        uniformsList[i].uPixelRatio.value = renderer.getPixelRatio();
-      });
+      lowQuality = low;
+      updateDensity();
+      for (const uniforms of uniformsList) uniforms.uPixelRatio.value = renderer.getPixelRatio();
       gridUniforms.uPixelRatio.value = renderer.getPixelRatio();
       if (gridSize.low !== low) { gridSize.low = low; resizeGrid(true); }
     },

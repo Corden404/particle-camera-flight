@@ -7,6 +7,7 @@ import { getViewportLayout } from './layout/viewport.js';
 import { Navigation, WheelIntent, getKeyIntent, isInteractiveTarget } from './interaction/Navigation.js';
 import { createModalController } from './ui/overlays.js';
 import { PointerField } from './interaction/PointerField.js';
+import { createVisualControls } from './ui/VisualControls.js';
 import './approved.css';
 
 // The four approved Blender stops. Only these big titles appear on the hero.
@@ -23,6 +24,8 @@ app.innerHTML = [
   "<div class='approved-vignette' aria-hidden='true'></div>",
   "<div class='approved-grain' aria-hidden='true'></div>",
   "<header class='approved-header'>",
+  "<button type='button' class='approved-visual-toggle' id='visual-button' lang='zh-CN' aria-label='打开视觉调节' aria-controls='visual-controls' aria-expanded='false' title='视觉调节'>",
+  "<svg viewBox='0 0 24 24' aria-hidden='true' fill='none' stroke='currentColor' stroke-width='1.25' stroke-linecap='round'><path d='M4 7h16M4 12h16M4 17h16'/><circle cx='9' cy='7' r='2.1' fill='#080b0d'/><circle cx='16' cy='12' r='2.1' fill='#080b0d'/><circle cx='11' cy='17' r='2.1' fill='#080b0d'/></svg></button>",
   "<button type='button' class='approved-menu-button' id='menu-button' aria-label='Open navigation' aria-controls='approved-overlay-menu' aria-haspopup='dialog' aria-expanded='false'>",
   "<span></span><span></span></button></header>",
   "<main class='approved-chapter'><h1>",
@@ -34,6 +37,15 @@ app.innerHTML = [
   "<div class='approved-steps-rail' aria-hidden='true'><i></i></div>",
   "<button type='button' id='approved-next' aria-label='Next chapter'>",
   "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.35' aria-hidden='true'><path d='m6 9 6 6 6-6'/></svg></button></nav>",
+  "<aside class='visual-controls' id='visual-controls' lang='zh-CN' role='region' aria-labelledby='visual-controls-title' hidden inert>",
+  "<div class='visual-controls-head'><div><p class='visual-controls-eyebrow'>LIVE TUNING / 01</p><h2 id='visual-controls-title'>视觉调节</h2></div>",
+  "<button type='button' class='visual-controls-close' data-visual-close aria-label='关闭视觉调节'>" + closeIcon + "</button></div>",
+  "<p class='visual-controls-intro'>拖动滑块，立即查看效果。100% 为当前设计默认值。</p>",
+  "<div class='visual-controls-body' data-visual-groups></div>",
+  "<div class='visual-controls-footer'><div class='visual-controls-actions'>",
+  "<button type='button' data-visual-reset>恢复默认</button>",
+  "<button type='button' data-visual-copy>复制参数</button></div>",
+  "<p class='visual-controls-status' data-visual-status role='status' aria-live='polite'>调整会自动保存在本机</p></div></aside>",
   "<div class='approved-overlay-menu' id='approved-overlay-menu' role='dialog' aria-modal='true' aria-labelledby='approved-menu-title' aria-hidden='true' tabindex='-1' data-modal hidden inert>",
   "<h2 class='approved-sr-only' id='approved-menu-title'>Choose a chapter</h2>",
   "<button type='button' id='close-menu' class='approved-menu-close' aria-label='Close navigation' data-close-panel data-initial-focus>" + closeIcon + "</button>",
@@ -81,6 +93,8 @@ const rail = document.querySelector('.approved-steps-rail');
 const announcement = document.getElementById('approved-announcement');
 const motionButton = document.getElementById('motion-toggle');
 const qualityButton = document.getElementById('quality-toggle');
+const visualPanel = document.getElementById('visual-controls');
+const visualButton = document.getElementById('visual-button');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x030507);
@@ -112,6 +126,15 @@ let frameId = 0;
 let frameCount = 0;
 let startedAt;
 let lastError = null;
+const visualControls = createVisualControls({
+  panel: visualPanel,
+  trigger: visualButton,
+  onChange: settings => {
+    ambientField?.setDensity(settings.ambientDensity);
+    requestFrame();
+  }
+});
+const tuning = visualControls.settings;
 
 const modals = createModalController({
   root: app,
@@ -119,8 +142,10 @@ const modals = createModalController({
   fallbackFocus: menuButton,
   onChange(dialog) {
     menuButton.setAttribute('aria-expanded', String(dialog === menu));
-    if (dialog) stopFrames();
-    else requestFrame();
+    if (dialog) {
+      visualControls.close({ restoreFocus: false });
+      stopFrames();
+    } else requestFrame();
   }
 });
 
@@ -197,7 +222,7 @@ function renderScene() {
   cameraPath.sample(camera, state.story, layout.portraitWeight);
   // Local parallax overlays the original Blender pose; the camera samples
   // remain unchanged. Pointer X, Y and velocity all contribute to dolly depth.
-  const parallax = reducedMotion ? 0 : interaction.energy *
+  const parallax = reducedMotion ? 0 : interaction.energy * tuning.cameraSway *
     (1 - layout.portraitWeight * 0.55) * (state.inflight ? 0.46 : 1);
   camera.translateX(interaction.pointer.x * parallax * 1.05);
   camera.translateY(interaction.pointer.y * parallax * 0.65);
@@ -205,8 +230,8 @@ function renderScene() {
     -interaction.pointer.y * 1.38 + interaction.pointer.x * 0.92 +
     interaction.velocity.x * 0.13 + interaction.velocity.y * 0.11
   ) * parallax, -0.90, 0.90));
-  surfaces.update(time, state.story, !reducedMotion, camera, interaction);
-  ambientField.update(time, state.story, !reducedMotion, camera, interaction);
+  surfaces.update(time, state.story, !reducedMotion, camera, interaction, tuning);
+  ambientField.update(time, state.story, !reducedMotion, camera, interaction, tuning);
   rail.style.setProperty('--progress', (state.story / 3).toFixed(4));
   renderer.render(scene, camera);
   frameCount++;
@@ -302,7 +327,10 @@ function toggleQuality() {
 }
 
 menuButton.addEventListener('click', () => {
-  if (ready) modals.open(menu, { trigger: menuButton });
+  if (ready) {
+    visualControls.close({ restoreFocus: false });
+    modals.open(menu, { trigger: menuButton });
+  }
 });
 app.querySelectorAll('[data-close-panel]').forEach(button => {
   button.addEventListener('click', () => modals.close());
@@ -329,6 +357,16 @@ motionPreference.addEventListener('change', event => {
 
 addEventListener('keydown', event => {
   if (!ready || modals.active) return;
+  if (visualControls.isOpen) {
+    if (event.key === 'Escape') { event.preventDefault(); visualControls.close(); }
+    return; // Slider arrow keys never navigate the story.
+  }
+  if (event.key?.toLowerCase() === 'v' && !event.ctrlKey && !event.metaKey &&
+    !event.altKey && !event.shiftKey && !event.repeat && !isInteractiveTarget(event.target)) {
+    event.preventDefault();
+    visualControls.toggle();
+    return;
+  }
   const intent = getKeyIntent(event);
   if (!intent) return;
   event.preventDefault();
@@ -338,14 +376,14 @@ addEventListener('keydown', event => {
   else if (intent === 'motion') setReducedMotion(!reducedMotion);
 });
 addEventListener('wheel', event => {
-  if (!ready || modals.active) return;
+  if (!ready || modals.active || visualPanel.contains(event.target)) return;
   const direction = wheelIntent.push(event, performance.now(), layout.height);
   if (direction) step(direction);
 }, { passive: true });
 
 // Listen above the canvas as the title and navigation occupy part of the scene.
 app.addEventListener('pointermove', event => {
-  if (!ready || modals.active || reducedMotion) return;
+  if (!ready || modals.active || reducedMotion || visualPanel.contains(event.target)) return;
   const rect = app.getBoundingClientRect();
   pointerField.move(
     (event.clientX - rect.left) / rect.width * 2 - 1,
@@ -358,7 +396,7 @@ app.addEventListener('pointerleave', () => pointerField.leave(), { passive: true
 // Mouse left button fires exactly one expanding ripple without requiring a drag.
 app.addEventListener('pointerdown', event => {
   if (!ready || reducedMotion || modals.active || event.button !== 0 ||
-    isInteractiveTarget(event.target)) return;
+    isInteractiveTarget(event.target) || visualPanel.contains(event.target)) return;
   const rect = app.getBoundingClientRect();
   pointerField.click(
     (event.clientX - rect.left) / rect.width * 2 - 1,
@@ -371,7 +409,8 @@ addEventListener('blur', () => pointerField.leave());
 
 let touchStart = null;
 app.addEventListener('touchstart', event => {
-  if (!ready || modals.active || event.touches.length !== 1 || isInteractiveTarget(event.target)) {
+  if (!ready || modals.active || event.touches.length !== 1 ||
+    isInteractiveTarget(event.target) || visualPanel.contains(event.target)) {
     touchStart = null;
     return;
   }
@@ -500,6 +539,7 @@ async function initialize(fromRetry = false) {
     cameraPath = path;
     surfaces = sculpture;
     ambientField = createFreeAmbientParticles(renderer, cameraPath.data);
+    ambientField.setDensity(tuning.ambientDensity);
     scene.add(surfaces.group, ambientField.group);
     refreshResolution();
     startedAt ??= performance.now();

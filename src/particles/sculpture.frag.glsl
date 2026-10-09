@@ -2,6 +2,7 @@ precision highp float;
 
 uniform vec3 uChapterPalette;
 uniform float uLayer;
+uniform vec4 uModelControls; // saturation, brightness, size, motion
 varying float vTone;
 varying float vBand;
 varying float vLight;
@@ -32,11 +33,13 @@ void main() {
   // Lower saturation without dimming the form: luminance is conserved, while
   // blue and amber remain distinct. The reactive layer is subtly more colorful.
   float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
-  color = mix(vec3(luminance), color, 0.62 + uLayer * 0.04);
+  color = mix(vec3(luminance), color,
+    clamp((0.62 + uLayer * 0.04) * uModelControls.x, 0.0, 1.0));
   float materialValue = mix(0.88, 1.0, smoothstep(0.10, 0.48, vTone));
   color *= materialValue * vLight * (0.86 + 0.25 * vTwinkle) *
     (1.0 + vResponse * 0.24);
   color += silver * vGlint * 0.34;
+  color *= uModelControls.y;
 
   float opacity = grain * vAlpha * (0.74 + 0.28 * vTwinkle);
   if (opacity < 0.003) discard;

@@ -151,6 +151,8 @@ export async function createMorphSculpture(renderer) {
     uTime: { value: 0 },
     uStory: { value: 0 },
     uMotion: { value: 1 },
+    uModelControls: { value: new THREE.Vector4(1, 1, 1, 1) },
+    uTwinkleIntensity: { value: 1 },
     uPixelRatio: { value: renderer.getPixelRatio() },
     uModelScale: { value: viewportModelScale(0) },
     uViewportHeight: { value: renderer.domElement.clientHeight || 900 },
@@ -208,7 +210,7 @@ export async function createMorphSculpture(renderer) {
     setViewportScale(weight) {
       for (const uniforms of uniformSets) uniforms.uModelScale.value = viewportModelScale(weight);
     },
-    update(time, story, moving, camera, interaction) {
+    update(time, story, moving, camera, interaction, settings) {
       const currentStory = Number.isFinite(story) ? Math.min(3, Math.max(0, story)) : 0;
       const leg = Math.min(2, Math.floor(currentStory));
       sampleLegEnvelope(leg, currentStory - leg, art);
@@ -221,11 +223,16 @@ export async function createMorphSculpture(renderer) {
         uniforms.uStory.value = currentStory;
         uniforms.uMotion.value = moving ? 1 : 0;
         uniforms.uViewportHeight.value = renderer.domElement.clientHeight || 900;
-        uniforms.uTransit.value.set(art.scatter, art.swirl, art.focus, art.transit);
+        uniforms.uTransit.value.set(art.scatter * (settings?.scatter ?? 1),
+          art.swirl, art.focus, art.transit);
+        uniforms.uModelControls.value.set(settings?.modelSaturation ?? 1,
+          settings?.modelBrightness ?? 1, settings?.modelSize ?? 1,
+          settings?.modelMotion ?? 1);
+        uniforms.uTwinkleIntensity.value = settings?.modelTwinkle ?? 1;
         uniforms.uTiming.value.set(art.travelStart, art.travelEnd, art.stagger);
         uniforms.uStream.value.set(art.bend, art.lift, art.lane);
         uniforms.uChapterPalette.value.set(palette.cool, palette.warm, palette.lilac);
-        updateInteractionUniforms(uniforms, moving ? interaction : null, camera);
+        updateInteractionUniforms(uniforms, moving ? interaction : null, camera, settings);
         if (camera) {
           // Camera-flight positions remain authored; these parameters only
           // modulate the particle motion inside the scene.

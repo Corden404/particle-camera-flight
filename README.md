@@ -73,11 +73,22 @@ The baker allocates the exact point budget across connected surface components. 
 
 The runtime measures the app rectangle and derives one continuous portrait weight from its aspect ratio. Titles, camera framing and sculpture scale share that weight. There is no abrupt 759/760-pixel camera switch. Wide viewports use the original camera route as their base, with damped pointer parallax added while motion is enabled; portrait dock adjustments fade away during travel.
 
-The sculptures use two morphing `THREE.Points` layers sharing 22,000 points in High (76% stable depth-writing silhouette, 24% reactive surface), with 70% of each layer's draw range in Eco. The atmosphere combines 1,900 colored spatial flecks, 72 near-lens particles and an independent responsive microdot grid. The grid uses 40–300 columns according to viewport width, reduced in Eco. All four render objects are point clouds.
+The sculptures use two morphing `THREE.Points` layers sharing 22,000 points in High (76% stable depth-writing silhouette, 24% reactive surface), with 70% of each layer's draw range in Eco. The atmosphere combines 1,900 colored spatial flecks, 72 near-lens particles and an independent responsive microdot grid. The grid uses 40–300 columns according to viewport width, reduced in Eco. All five draw objects are point clouds, with no solid meshes.
 
 Blue (`#4089dd`) and amber (`#f48c18`) color regions move across each form, blended toward luminance-matched neutral tones for a softer, lower-saturation finish; background flecks and the responsive microdot grid are desaturated separately. The desaturation weights live in `src/particles/sculpture.frag.glsl` and `src/particles/ApprovedParticleFields.js`. Limited silver highlights and crisp varied grains remain. Particle materials bypass ACES tone mapping to retain those colors. The sculpture emits calibrated display colors directly; the ambient materials convert their linear palette to sRGB. Grain diameters account for viewport height, projection, depth and cursor proximity.
 
 Each of the three legs has its own scatter, swirl direction, bend, lift and camera-focus envelope. The underlying transition remains chapter-phase driven. Continuous bounded drift, traveling surface waves and gentle rocking are added around the current model center, including when a chapter is settled. The microdot grid has its own moving brightness and displacement waves. Pointer position and velocity drive a shared local force with an eight-sample wake that fades over roughly 1.8 seconds; reduced motion disables these offsets.
+
+### Live visual tuning
+
+Open the discreet sliders icon at the upper-right corner, or press **V** when no interactive control is focused. This reveals a **non-modal** left-hand panel so the WebGL scene remains animated and visible while adjusting the controls. Drag any slider to see its effect immediately. Values are multipliers: **100% preserves the current authored appearance**. The controls are grouped into:
+
+- Model: saturation, brightness, particle size, surface motion, shimmer
+- Atmosphere: saturation, brightness, drifting-fleck density, microdot brightness
+- Interaction/camera: mouse displacement, click ripple, camera sway
+- Transitions: scatter radius
+
+The panel has **Restore defaults** and **Copy parameters** (JSON, requiring clipboard permission). Sliders persist automatically under localStorage key `leeq.visual-controls.v1`, with safe defaults if storage is unavailable or invalid. Focused slider arrow keys and wheel scrolling inside the controls never switch chapters. **Escape** closes the tuner and restores keyboard focus. On mobile the panel fits the viewport and has its own scroll area. Use `src/controls/visual-settings.js` for bounds, labels and saved defaults, `src/ui/VisualControls.js` for the interface, and shader uniforms in `src/particles/` for live GPU effects.
 
 | What to adjust | Active location |
 | --- | --- |
@@ -96,9 +107,9 @@ Each of the three legs has its own scatter, swirl direction, bend, lift and came
 
 ## Accessibility, loading and rendering
 
-Menus and panels contain keyboard focus, mark the background inert, and restore focus when closed. Controls have visible focus treatment and touch-sized hit areas. Native button key activation is not intercepted by global navigation.
+Modal menus and dialogs contain keyboard focus, mark the background inert, and restore focus when closed. The optional non-modal visual tuner intentionally keeps the 3D preview active and returns focus to its trigger when closed. Controls have visible focus treatment and touch-sized hit areas. Native button key activation is not intercepted by global navigation.
 
-System reduced-motion changes apply live until the visitor chooses an explicit override. Reduced-motion mode moves immediately to the destination and renders on demand. Frozen captures, hidden documents and open panels stop continuous scene rendering. Low-memory or coarse-pointer devices start in Eco; the menu exposes both display preferences.
+System reduced-motion changes apply live until the visitor chooses an explicit override. Reduced-motion mode moves immediately to the destination and renders on demand. Frozen captures, hidden documents and open modal panels stop continuous scene rendering; the non-modal visual tuner does not pause the preview. Low-memory or coarse-pointer devices start in Eco; the menu exposes both display preferences.
 
 A failed asset request, WebGL startup failure, a 20-second load timeout or a lost WebGL context opens a visible recovery panel with Retry and the real GitHub link. Retry after context loss replaces the failed canvas before initializing a new renderer. Obsolete asynchronous loads cannot reactivate a failed scene; late particle resources are disposed. Their underlying requests may still finish because the current factories do not accept an AbortSignal.
 

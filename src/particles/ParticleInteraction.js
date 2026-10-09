@@ -6,15 +6,19 @@ export function createInteractionUniforms() {
   return {
     uPointer: { value: new THREE.Vector4(10, 10, 0, 0) },
     uPointerEnergy: { value: 0 },
+    uPointerStrength: { value: 1 },
+    uClickStrength: { value: 1 },
     uClickRipple: { value: new THREE.Vector4(10, 10, 10, 0) },
     uAspect: { value: 1 },
     uPointerTrail: { value: Array.from({ length: POINTER_TRAIL_SIZE }, () => new THREE.Vector4(10, 10, 10, 0)) }
   };
 }
 
-export function updateInteractionUniforms(uniforms, interaction, camera) {
+export function updateInteractionUniforms(uniforms, interaction, camera, settings) {
   uniforms.uAspect.value = camera?.aspect || 1;
   uniforms.uPointerEnergy.value = interaction?.energy || 0;
+  uniforms.uPointerStrength.value = settings?.pointerStrength ?? 1;
+  uniforms.uClickStrength.value = settings?.clickStrength ?? 1;
   if (interaction) {
     uniforms.uPointer.value.set(interaction.pointer.x, interaction.pointer.y,
       interaction.velocity.x, interaction.velocity.y);

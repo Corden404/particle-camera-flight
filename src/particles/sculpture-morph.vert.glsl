@@ -3,6 +3,8 @@ precision highp float;
 uniform float uTime;
 uniform float uStory;
 uniform float uMotion;
+uniform vec4 uModelControls; // saturation, brightness, size, motion
+uniform float uTwinkleIntensity;
 uniform float uLayer;
 uniform float uPixelRatio;
 uniform float uModelScale;
@@ -116,26 +118,26 @@ void main() {
   // The settled surface stays alive: a slow coherent wave passes through it,
   // while individual grains drift by at most a small fraction of its silhouette.
   float life = uTime * uMotion;
-  float wave = sin(dot(surfaceLocal, vec3(0.73, 1.19, 0.58)) - life * 1.22);
-  float crossWave = sin(dot(surfaceLocal, vec3(-0.38, 0.46, 1.11)) + life * 0.91);
+  float wave = sin(dot(surfaceLocal, vec3(0.73, 1.19, 0.58)) - life * 1.22 * uModelControls.w);
+  float crossWave = sin(dot(surfaceLocal, vec3(-0.38, 0.46, 1.11)) + life * 0.91 * uModelControls.w);
   float grainPhase = aRandom.x * TAU;
   float grainScale = mix(0.008 + 0.014 * aRandom.y,
     0.028 + 0.086 * aRandom.y, uLayer);
   vec3 grainDrift = vec3(
-    sin(life + grainPhase + surfaceLocal.y * 0.24),
-    cos(life * 0.93 + aRandom.y * TAU + surfaceLocal.x * 0.20),
-    sin(life * 0.77 + grainPhase + surfaceLocal.z * 0.31)
+    sin(life * uModelControls.w + grainPhase + surfaceLocal.y * 0.24),
+    cos(life * 0.93 * uModelControls.w + aRandom.y * TAU + surfaceLocal.x * 0.20),
+    sin(life * 0.77 * uModelControls.w + grainPhase + surfaceLocal.z * 0.31)
   ) * grainScale;
   vec3 livingOffset = normal * (wave * 0.055 + crossWave * 0.026) *
     mix(0.22, 1.0, uLayer) + grainDrift;
   livingOffset *= min(1.0, mix(0.036, 0.16, uLayer) /
     max(0.0001, length(livingOffset)));
-  local += livingOffset * uMotion * (1.0 - transit.w * 0.38);
+  local += livingOffset * uMotion * uModelControls.w * (1.0 - transit.w * 0.38);
 
   // Rock about the current sculpture center, so distant world-space chapters
   // stay framed while the form catches changing blue, amber and white bands.
-  float rockY = sin(life * 0.50) * 0.15 * uMotion;
-  float rockZ = sin(life * 0.50 + 0.60) * 0.12 * uMotion;
+  float rockY = sin(life * 0.50 * uModelControls.w) * 0.15 * uMotion * uModelControls.w;
+  float rockZ = sin(life * 0.50 * uModelControls.w + 0.60) * 0.12 * uMotion * uModelControls.w;
   local = twistZ(twistY(local, rockY), rockZ);
   normal = twistZ(twistY(normal, rockY), rockZ);
 
@@ -183,15 +185,16 @@ void main() {
   float pulse = 0.5 + 0.5 * sin(life * (1.6 + 4.1 * aRandom.y) + grainPhase);
   float shimmer = pow(0.5 + 0.5 * sin(life * (0.55 + 2.3 * aRandom.x) +
     aRandom.y * TAU * 3.0), 3.0);
-  vTwinkle = mix(0.58, 0.94, pulse) + shimmer * mix(0.035, 0.23, uLayer);
+  float naturalTwinkle = mix(0.58, 0.94, pulse) + shimmer * mix(0.035, 0.23, uLayer);
+  vTwinkle = 1.0 + (naturalTwinkle - 1.0) * uTwinkleIntensity;
   float sprite = mix(3.7 + 6.6 * pow(aRandom.y, 1.22),
     5.4 + 11.0 * pow(aRandom.y, 1.8) + rare * 2.4, uLayer);
   sprite *= 0.86 + 0.24 * vTwinkle;
   float px = sprite * uPixelRatio * projectionScale * (14.0 / max(3.0, depth));
   px += response.x * mix(2.4, 7.5, uLayer) * uPixelRatio;
-  gl_PointSize = clamp(px * (1.0 + transit.w * 0.10),
-    mix(2.0, 3.1, uLayer) * uPixelRatio,
-    mix(15.0, 26.0, uLayer) * uPixelRatio);
+  gl_PointSize = clamp(px * uModelControls.z * (1.0 + transit.w * 0.10),
+    mix(2.0, 3.1, uLayer) * uPixelRatio * uModelControls.z,
+    mix(15.0, 26.0, uLayer) * uPixelRatio * uModelControls.z);
 
   vec3 viewNormal = normalize(normalMatrix * normal);
   vec3 toEye = normalize(-view.xyz);
@@ -210,10 +213,10 @@ void main() {
 
   // Spatial color fields move independently of the geometry. Broad saturated
   // regions remain readable, with small grain-to-grain variations along edges.
-  vec3 colorFlow = vec3(life * 0.066, -life * 0.095, life * 0.049);
+  vec3 colorFlow = vec3(life * 0.066, -life * 0.095, life * 0.049) * uModelControls.w;
   float colorNoise = sculptureNoise(surfaceLocal * 0.49 + colorFlow);
   float colorWave = sin(dot(surfaceLocal, vec3(0.48, 0.67, 0.32)) +
-    colorNoise * 4.2 - life * 0.31);
+    colorNoise * 4.2 - life * 0.31 * uModelControls.w);
   float silverNoise = sculptureNoise(surfaceLocal * 0.65 -
     colorFlow * 1.17 + vec3(5.1, 2.3, 8.4));
 
