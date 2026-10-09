@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import sculptureVert from './sculpture.vert.glsl?raw';
 import sculptureFrag from './sculpture.frag.glsl?raw';
+import { sampleChapterPalette, sampleLegEnvelope, viewportModelScale } from './art-direction.js';
 
 function seeded() {
   let state=624831;
@@ -37,6 +38,7 @@ export async function createSurfaceParticles(renderer) {
  if(!response.ok)throw Error('Surface sample file unavailable');
  const data=decodeSurfacePoints(await response.arrayBuffer());
  const objects=[],uniformSets=[];
+ const palette=sampleChapterPalette(0);
  for(let stage=0;stage<4;stage++){
    const pose=data.groups[stage],geometry=new THREE.BufferGeometry();
    geometry.setAttribute('position',new THREE.BufferAttribute(pose.pos,3));
@@ -48,7 +50,8 @@ export async function createSurfaceParticles(renderer) {
    const uniforms={
      uTime:{value:0},uStory:{value:0},uStage:{value:stage},
      uMotion:{value:1},uPixelRatio:{value:renderer.getPixelRatio()},
-     uModelCenter:{value:worldCenter},uModelScale:{value:1.14}
+     uModelCenter:{value:worldCenter},uModelScale:{value:viewportModelScale(0)},
+     uChapterPalette:{value:new THREE.Vector3(palette.cool,palette.warm,palette.lilac)}
    };
    const material=new THREE.ShaderMaterial({uniforms,vertexShader:vertexStage,fragmentShader:fragmentStage,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending});
    const points=new THREE.Points(geometry,material);
@@ -59,13 +62,17 @@ export async function createSurfaceParticles(renderer) {
  const group=new THREE.Group();group.name='Pure particle sculptures — zero solid mesh geometry';group.add(...objects);
  return {
    group,count:data.count,
-   setViewportScale(portrait){
-     // Keep a consistent 14% larger point-cloud silhouette on desktops.
-     // Portrait remains 10% larger; narrow desktop framing is handled by FOV.
-     const scale=portrait?1.10:1.14;
+   setViewportScale(weight){
+     const scale=viewportModelScale(weight);
      for(const u of uniformSets)u.uModelScale.value=scale;
    },
-   update(time,story,moving){for(const u of uniformSets){u.uTime.value=moving?time:0;u.uStory.value=story;u.uMotion.value=moving?1:0;}},
+   update(time,story,moving){
+     sampleChapterPalette(story,palette);
+     for(const u of uniformSets){
+       u.uTime.value=moving?time:0;u.uStory.value=story;u.uMotion.value=moving?1:0;
+       u.uChapterPalette.value.set(palette.cool,palette.warm,palette.lilac);
+     }
+   },
    quality(low){for(let i=0;i<objects.length;i++){
      objects[i].geometry.setDrawRange(0,low?Math.floor(data.count*0.70):data.count);
      uniformSets[i].uPixelRatio.value=renderer.getPixelRatio();
@@ -95,59 +102,89 @@ export function createFreeAmbientParticles(renderer, cameraData) {
     { name:'Soft near-lens parallax particles', count:320, mode:2 }
   ];
 
-  const vertexShader = [
-    'precision highp float;',
-    'uniform float uTime; uniform float uStory; uniform float uMotion; uniform float uPixelRatio; uniform float uLayer;',
-    'attribute vec3 aSeed;',
-    'varying float vAlpha; varying float vColor; varying float vLayer;',
-    'void main(){',
-    ' float phase=fract(clamp(uStory,0.0,2.999));',
-    ' float flight=pow(max(0.0,sin(3.14159265*phase)),1.4);',
-    ' float time=uTime*uMotion;',
-    ' vec3 p=position;',
-    ' float wind=time*(0.28+0.23*aSeed.x);',
-    ' vec3 flow=vec3(',
-    '   sin(p.y*0.14+p.z*0.083+wind+aSeed.x*6.283),',
-    '   cos(p.x*0.10-p.z*0.069-wind*0.85+aSeed.y*6.283),',
-    '   sin(p.x*0.12+p.y*0.17+wind*0.71+aSeed.z*6.283));',
-    ' float scale=uLayer<0.5?0.85:(uLayer<1.5?1.22:0.73);',
-    ' p+=flow*scale*(0.88+1.95*flight)*uMotion;',
-    ' p+=vec3(-0.8,0.26,0.75)*flight*(0.5+aSeed.x)*1.16*uMotion;',
-    ' vec4 mv=modelViewMatrix*vec4(p,1.0);',
-    ' gl_Position=projectionMatrix*mv;',
-    ' float depth=-mv.z;',
-    ' float size=uLayer<0.5?(2.1+aSeed.x*1.7):(uLayer<1.5?(2.5+aSeed.x*2.0):(10.0+aSeed.x*10.0));',
-    ' size=size*uPixelRatio*(15.0/max(1.0,depth));',
-    ' gl_PointSize=clamp(size,1.05,uLayer<1.5?6.9*uPixelRatio:35.0*uPixelRatio);',
-    ' float depthFade=smoothstep(1.4,4.6,depth)*(1.0-smoothstep(65.0,105.0,depth));',
-    ' float layerStrength=uLayer<0.5?0.43:(uLayer<1.5?0.64:0.21);',
-    ' float twinkle=0.84+0.16*sin(time*(0.7+aSeed.y)+aSeed.x*17.0);',
-    ' vAlpha=layerStrength*depthFade*twinkle*(0.64+0.36*aSeed.y)*(1.0+0.14*flight);',
-    ' vColor=aSeed.z;',
-    ' vLayer=uLayer;',
-    '}'
-  ].join('\n');
-  const fragmentShader = [
-    'precision highp float;',
-    'varying float vAlpha; varying float vColor; varying float vLayer;',
-    'void main(){',
-    ' float r=length(gl_PointCoord-vec2(0.5));',
-    ' if(r>=0.50)discard;',
-    ' float core=1.0-smoothstep(0.015,0.19,r);',
-    ' float haze=1.0-smoothstep(0.06,0.50,r);',
-    ' float bokeh=exp(-14.0*r*r);',
-    ' float shape=vLayer<0.5?haze*0.35:(vLayer<1.5?core*0.75+haze*0.30:bokeh*0.58);',
-    ' vec3 pearl=vec3(0.88,0.90,0.94);',
-    ' vec3 cool=vec3(0.54,0.64,0.74);',
-    ' vec3 warm=vec3(0.76,0.69,0.59);',
-    ' vec3 tint=mix(cool,warm,smoothstep(0.22,0.88,vColor));',
-    ' vec3 rgb=mix(pearl,tint,vLayer<0.5?0.25:0.41);',
-    ' gl_FragColor=vec4(rgb,shape*vAlpha);',
-    '}'
-  ].join('\n');
+  const vertexShader = `
+    precision highp float;
+    uniform float uTime;
+    uniform float uStory;
+    uniform float uMotion;
+    uniform float uPixelRatio;
+    uniform float uViewportHeight;
+    uniform float uLayer;
+    uniform float uTransit;
+    uniform vec2 uAtmosphere;
+    attribute vec3 aSeed;
+    varying float vAlpha;
+    varying float vColor;
+    varying float vLayer;
+
+    void main() {
+      float story = clamp(uStory, 0.0, 3.0);
+      float phase = story - min(2.0, floor(story));
+      float settled = (phase == 0.0 || phase == 1.0) ? 1.0 : 0.0;
+      vec3 p = position;
+      // Transit drift is phase-driven. Only a subtle settled shimmer uses time.
+      float wind = story * (0.35 + 0.16 * aSeed.x) +
+        sin(uTime * 0.22 + aSeed.y * 6.283) * 0.12 * settled;
+      vec3 flow = vec3(
+        sin(p.y * 0.14 + p.z * 0.083 + wind + aSeed.x * 6.283),
+        cos(p.x * 0.10 - p.z * 0.069 - wind * 0.85 + aSeed.y * 6.283),
+        sin(p.x * 0.12 + p.y * 0.17 + wind * 0.71 + aSeed.z * 6.283));
+      float scale = uLayer < 0.5 ? 0.32 : (uLayer < 1.5 ? 0.52 : 0.25);
+      p += flow * scale * uAtmosphere.y * uMotion;
+      p += vec3(-0.22, 0.08, 0.17) * uTransit * (0.5 + aSeed.x) * uMotion;
+      vec4 mv = modelViewMatrix * vec4(p, 1.0);
+      gl_Position = projectionMatrix * mv;
+      float depth = -mv.z;
+      float size = uLayer < 0.5 ? (1.4 + aSeed.x * 1.1) :
+        (uLayer < 1.5 ? (1.8 + aSeed.x * 1.4) : (7.0 + aSeed.x * 9.0));
+      float projectionScale = uViewportHeight / 900.0 * projectionMatrix[1][1] / 2.74747742;
+      size *= uPixelRatio * projectionScale * (15.0 / max(1.0, depth));
+      gl_PointSize = clamp(size, 0.55 * uPixelRatio,
+        uLayer < 1.5 ? 5.4 * uPixelRatio : 25.0 * uPixelRatio);
+      float depthFade = smoothstep(1.4, 4.6, depth) *
+        (1.0 - smoothstep(65.0, 105.0, depth));
+      float layerStrength = uLayer < 0.5 ? 0.20 : (uLayer < 1.5 ? 0.32 : 0.095);
+      float twinkle = 1.0 + 0.07 * sin(uTime * 0.62 + aSeed.x * 17.0) * settled * uMotion;
+      vAlpha = layerStrength * depthFade * twinkle *
+        (0.64 + 0.36 * aSeed.y) * uAtmosphere.x;
+      vColor = aSeed.z;
+      vLayer = uLayer;
+    }
+  `;
+  const fragmentShader = `
+    precision highp float;
+    uniform vec3 uChapterPalette;
+    varying float vAlpha;
+    varying float vColor;
+    varying float vLayer;
+
+    void main() {
+      float r = length(gl_PointCoord - vec2(0.5));
+      if (r >= 0.50) discard;
+      float core = 1.0 - smoothstep(0.015, 0.19, r);
+      float haze = 1.0 - smoothstep(0.06, 0.50, r);
+      float bokeh = exp(-14.0 * r * r);
+      float shape = vLayer < 0.5 ? haze * 0.30 :
+        (vLayer < 1.5 ? core * 0.74 + haze * 0.18 : bokeh * 0.46);
+      // Linear RGB values are intentionally below sculpture reflectances.
+      vec3 pearl = vec3(0.15, 0.18, 0.23);
+      vec3 cool = vec3(0.065, 0.105, 0.16);
+      vec3 warm = vec3(0.19, 0.145, 0.09);
+      float warmMask = smoothstep(0.42, 0.95, vColor) * uChapterPalette.y;
+      vec3 tint = mix(cool, warm, warmMask);
+      vec3 rgb = mix(pearl, tint, 0.36 + uChapterPalette.x * 0.20);
+      float opacity = shape * vAlpha;
+      if (opacity < 0.001) discard;
+      gl_FragColor = vec4(rgb, opacity);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }
+  `;
   const group = new THREE.Group();
   group.name = 'World-space free-flowing cosmic particles';
   const uniformsList=[], pointsList=[];
+  const art=sampleLegEnvelope(0,0);
+  const palette=sampleChapterPalette(0);
   for (const layer of layers) {
     const positions = new Float32Array(layer.count*3);
     const seeds = new Float32Array(layer.count*3);
@@ -189,11 +226,14 @@ export function createFreeAmbientParticles(renderer, cameraData) {
     geometry.setAttribute('aSeed',new THREE.BufferAttribute(seeds,3));
     const uniforms={
       uTime:{value:0},uStory:{value:0},uMotion:{value:1},
-      uPixelRatio:{value:renderer.getPixelRatio()},uLayer:{value:layer.mode}
+      uPixelRatio:{value:renderer.getPixelRatio()},uLayer:{value:layer.mode},
+      uViewportHeight:{value:renderer.domElement.clientHeight||900},uTransit:{value:0},
+      uAtmosphere:{value:new THREE.Vector2(1,1)},
+      uChapterPalette:{value:new THREE.Vector3(palette.cool,palette.warm,palette.lilac)}
     };
     const material=new THREE.ShaderMaterial({
       uniforms,vertexShader,fragmentShader,
-      transparent:true,depthWrite:false,depthTest:true,blending:THREE.AdditiveBlending
+      transparent:true,depthWrite:false,depthTest:true,blending:THREE.AdditiveBlending,toneMapped:true
     });
     const points=new THREE.Points(geometry,material);
     points.frustumCulled=false;
@@ -206,10 +246,19 @@ export function createFreeAmbientParticles(renderer, cameraData) {
     group,
     count:layers.reduce((total,l)=>total+l.count,0),
     update(time,story,motion){
+      const currentStory=Number.isFinite(story)?Math.min(3,Math.max(0,story)):0;
+      const leg=Math.min(2,Math.floor(currentStory));
+      sampleLegEnvelope(leg,currentStory-leg,art);
+      sampleChapterPalette(currentStory,palette);
+      const viewportHeight=renderer.domElement.clientHeight||900;
       for(const uniforms of uniformsList){
-        uniforms.uTime.value=time;
-        uniforms.uStory.value=story;
+        uniforms.uTime.value=Number.isFinite(time)?time:0;
+        uniforms.uStory.value=currentStory;
         uniforms.uMotion.value=motion?1:0;
+        uniforms.uViewportHeight.value=viewportHeight;
+        uniforms.uTransit.value=art.transit;
+        uniforms.uAtmosphere.value.set(art.ambientAlpha,art.ambientMotion);
+        uniforms.uChapterPalette.value.set(palette.cool,palette.warm,palette.lilac);
       }
     },
     quality(low){

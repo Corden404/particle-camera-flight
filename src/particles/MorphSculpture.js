@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import vertexShader from './sculpture-morph.vert.glsl?raw';
 import fragmentShader from './sculpture.frag.glsl?raw';
+import { sampleChapterPalette, sampleLegEnvelope, viewportModelScale } from './art-direction.js';
 
 // Four separately approved models, encoded as independently sampled surfaces.
 // Runtime correspondence is spatially sorted per model and then equally shuffled.
@@ -31,26 +32,29 @@ function decodeSurfaces(buffer) {
   for (let stage = 0; stage < ROOTS; stage++) {
     const position = new Float32Array(count * 3);
     const shade = new Float32Array(count * 4);
-    const min = new THREE.Vector3(Infinity, Infinity, Infinity);
-    const max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
     for (let index = 0; index < count; index++) {
       const offset = 16 + (stage * count + index) * stride;
       const px = view.getFloat32(offset, true);
       const py = view.getFloat32(offset + 4, true);
       const pz = view.getFloat32(offset + 8, true);
-      if (![px, py, pz].every(Number.isFinite)) throw Error('Non-finite geometry');
-      position.set([px, py, pz], index * 3);
-      min.min(new THREE.Vector3(px, py, pz));
-      max.max(new THREE.Vector3(px, py, pz));
-      shade.set([
-        view.getInt8(offset + 12) / 127,
-        view.getInt8(offset + 13) / 127,
-        view.getInt8(offset + 14) / 127,
-        view.getUint8(offset + 15) / 255
-      ], index * 4);
+      if (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz)) {
+        throw Error('Non-finite geometry');
+      }
+      const p = index * 3;
+      const s = index * 4;
+      position[p] = px; position[p + 1] = py; position[p + 2] = pz;
+      minX = Math.min(minX, px); minY = Math.min(minY, py); minZ = Math.min(minZ, pz);
+      maxX = Math.max(maxX, px); maxY = Math.max(maxY, py); maxZ = Math.max(maxZ, pz);
+      shade[s] = view.getInt8(offset + 12) / 127;
+      shade[s + 1] = view.getInt8(offset + 13) / 127;
+      shade[s + 2] = view.getInt8(offset + 14) / 127;
+      // A continuous material/structure code, not an integer part identifier.
+      shade[s + 3] = view.getUint8(offset + 15) / 255;
     }
-    const center = min.clone().add(max).multiplyScalar(0.5);
-    const span = max.clone().sub(min);
+    const center = new THREE.Vector3((minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5);
+    const span = new THREE.Vector3(maxX - minX, maxY - minY, maxZ - minZ);
     poses.push({ position, shade, center, span });
   }
   return { poses, count };
@@ -104,14 +108,15 @@ function buildAlignedAttributes(decoded) {
     for (let stage = 0; stage < ROOTS; stage++) {
       const sourceIndex = stageOrders[stage][rank];
       const sourcePose = poses[stage];
-      positions[stage].set(
-        sourcePose.position.subarray(sourceIndex * 3, sourceIndex * 3 + 3),
-        i * 3
-      );
-      shades[stage].set(
-        sourcePose.shade.subarray(sourceIndex * 4, sourceIndex * 4 + 4),
-        i * 4
-      );
+      const sourcePosition = sourceIndex * 3;
+      const targetPosition = i * 3;
+      const sourceShade = sourceIndex * 4;
+      const targetShade = i * 4;
+      for (let axis = 0; axis < 3; axis++) {
+        positions[stage][targetPosition + axis] = sourcePose.position[sourcePosition + axis];
+        shades[stage][targetShade + axis] = sourcePose.shade[sourceShade + axis];
+      }
+      shades[stage][targetShade + 3] = sourcePose.shade[sourceShade + 3];
     }
     misc[i * 2] = random();
     misc[i * 2 + 1] = random();
@@ -136,13 +141,21 @@ export async function createMorphSculpture(renderer) {
   }
   geometry.setAttribute('aRandom', new THREE.BufferAttribute(attrs.misc, 2));
 
+  const art = sampleLegEnvelope(0, 0);
+  const palette = sampleChapterPalette(0);
   const uniforms = {
     uTime: { value: 0 },
     uStory: { value: 0 },
     uMotion: { value: 1 },
     uPixelRatio: { value: renderer.getPixelRatio() },
-    uModelScale: { value: 1.14 },
+    uModelScale: { value: viewportModelScale(0) },
+    uViewportHeight: { value: renderer.domElement.clientHeight || 900 },
+    uTransit: { value: new THREE.Vector4(0, 0, 0, 0) },
+    uTiming: { value: new THREE.Vector3(art.travelStart, art.travelEnd, art.stagger) },
+    uStream: { value: new THREE.Vector3() },
+    uChapterPalette: { value: new THREE.Vector3(palette.cool, palette.warm, palette.lilac) },
     uFlightFocus: { value: new THREE.Vector3() },
+    uFlightForward: { value: new THREE.Vector3(0, 0, -1) },
     uCenter0: { value: poses[0].center.clone() },
     uCenter1: { value: poses[1].center.clone() },
     uCenter2: { value: poses[2].center.clone() },
@@ -150,7 +163,7 @@ export async function createMorphSculpture(renderer) {
   };
   const material = new THREE.ShaderMaterial({
     uniforms, vertexShader, fragmentShader, transparent: true,
-    depthWrite: false, blending: THREE.AdditiveBlending
+    depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: true
   });
   const points = new THREE.Points(geometry, material);
   points.name = 'Single continuous GPU scatter-and-reassemble particle sculpture';
@@ -164,16 +177,26 @@ export async function createMorphSculpture(renderer) {
     group,
     count,
     morphing: true,
-    setViewportScale(portrait) { uniforms.uModelScale.value = portrait ? 1.10 : 1.14; },
+    setViewportScale(weight) { uniforms.uModelScale.value = viewportModelScale(weight); },
     update(time, story, moving, camera) {
-      uniforms.uTime.value = moving ? time : 0;
-      uniforms.uStory.value = story;
+      const currentStory = Number.isFinite(story) ? Math.min(3, Math.max(0, story)) : 0;
+      const leg = Math.min(2, Math.floor(currentStory));
+      sampleLegEnvelope(leg, currentStory - leg, art);
+      sampleChapterPalette(currentStory, palette);
+      uniforms.uTime.value = moving && Number.isFinite(time) ? time : 0;
+      uniforms.uStory.value = currentStory;
       uniforms.uMotion.value = moving ? 1 : 0;
+      uniforms.uViewportHeight.value = renderer.domElement.clientHeight || 900;
+      uniforms.uTransit.value.set(art.scatter, art.swirl, art.focus, art.transit);
+      uniforms.uTiming.value.set(art.travelStart, art.travelEnd, art.stagger);
+      uniforms.uStream.value.set(art.bend, art.lift, art.lane);
+      uniforms.uChapterPalette.value.set(palette.cool, palette.warm, palette.lilac);
       if (camera) {
         // Guide the dissolving cloud through the camera's actual field of view;
         // these are still world-space particles, not a flat screen overlay.
         forward.set(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
         uniforms.uFlightFocus.value.copy(camera.position).addScaledVector(forward, 12.0);
+        uniforms.uFlightForward.value.copy(forward);
       }
     },
     quality(low) {
