@@ -1,10 +1,9 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { Matrix4, Quaternion, Vector3 } from 'three';
+import { prepareSurfaceParts, sampleSurfaceParts, transformVertexNormals } from './point-sampling.mjs';
 
-const COUNT = Number(process.env.STAGE_PARTICLE_COUNT || 22000);
-if (!Number.isInteger(COUNT) || COUNT < 3000 || COUNT > 60000) throw Error('Invalid stage particle count');
-let randState=39143721;
-const random=()=>((randState=(Math.imul(randState,1664525)+1013904223)>>>0)/4294967296);
+const COUNT = 22000;
+const started = performance.now();
 // The mesh only exists locally as an ignored build input; runtime ships points only.
 const buffer=readFileSync('reference/generated-camera-source/approved-models.glb');
 if(buffer.toString('ascii',0,4)!=='glTF')throw Error('GLB expected');
@@ -25,7 +24,7 @@ function accessor(index){
  const bytes=bin.byteOffset+(v.byteOffset||0)+(a.byteOffset||0);
  const stride=v.byteStride||size*n;
  const view=new DataView(bin.buffer,bytes);
- let out=new Float32Array(count*n);
+ const out=new Float32Array(count*n);
  for(let i=0;i<count;i++)for(let j=0;j<n;j++){
    const off=i*stride+j*size;
    out[i*n+j]=a.componentType===5126 ? view.getFloat32(off,true) :
@@ -43,83 +42,65 @@ function matrix(n){
    new Quaternion(...(n.rotation||[0,0,0,1])),
    new Vector3(...(n.scale||[1,1,1])));
 }
-function barycentric(p,a,b,c,u,v){
- return p[a]*(1-u)+p[b]*(u*(1-v))+p[c]*(u*v);
-}
 const labels=['Model_Root_Sculpture','Model_Root_Dish70M','Model_Root_Curiosity','Model_Root_Apollo_Lm'];
 const sceneRoots=gltf.scenes[gltf.scene||0].nodes;
 const rootIDs=Object.fromEntries(sceneRoots.map(i=>[gltf.nodes[i].name,i]));
 const out=Buffer.allocUnsafe(16+labels.length*COUNT*16);
 out.write('STG1',0,4,'ascii');out.writeUInt32LE(labels.length,4);out.writeUInt32LE(COUNT,8);out.writeUInt32LE(16,12);
-let cursor=16;const worldBounds={};
+let cursor=16;
 
 for(let group=0;group<labels.length;group++){
  const name=labels[group],root=rootIDs[name];
  if(root===undefined)throw Error('Missing root '+name);
- let primitives=[],sum=0,min=new Vector3(Infinity,Infinity,Infinity),max=new Vector3(-Infinity,-Infinity,-Infinity);
+ const primitives=[],min=new Vector3(Infinity,Infinity,Infinity),max=new Vector3(-Infinity,-Infinity,-Infinity);
  function visit(i,parent){
-   const n=gltf.nodes[i];
-   const transform=parent.clone().multiply(matrix(n));
-   if(n.mesh!==undefined){
-     for(const primitive of gltf.meshes[n.mesh].primitives){
-       if(primitive.mode!==4||primitive.attributes.POSITION===undefined)continue;
+   const node=gltf.nodes[i];
+   const transform=parent.clone().multiply(matrix(node));
+   if(node.mesh!==undefined){
+     const mesh=gltf.meshes[node.mesh];
+     for(const primitive of mesh.primitives){
+       if((primitive.mode??4)!==4||primitive.attributes.POSITION===undefined)continue;
        const positions=cached(primitive.attributes.POSITION),length=positions.length/3;
-       const ids=primitive.indices!==undefined?cached(primitive.indices):Float32Array.from({length},(_,i)=>i);
+       const ids=primitive.indices!==undefined?cached(primitive.indices):Uint32Array.from({length},(_,i)=>i);
        const points=new Float32Array(positions.length),v=new Vector3();
        for(let k=0;k<length;k++){
          v.fromArray(positions,k*3).applyMatrix4(transform);
-         points[k*3]=v.x;points[k*3+1]=v.y;points[k*3+2]=v.z;
+         v.toArray(points,k*3);
          min.min(v);max.max(v);
        }
-       const numTri=Math.floor(ids.length/3);let total=0;const cumulative=new Float64Array(numTri);
-       for(let k=0;k<numTri;k++){
-         const a=ids[k*3]*3,b=ids[k*3+1]*3,c=ids[k*3+2]*3;
-         const abx=points[b]-points[a],aby=points[b+1]-points[a+1],abz=points[b+2]-points[a+2];
-         const acx=points[c]-points[a],acy=points[c+1]-points[a+1],acz=points[c+2]-points[a+2];
-         const xx=aby*acz-abz*acy,yy=abz*acx-abx*acz,zz=abx*acy-aby*acx;
-         total+=Math.max(1e-10,0.5*Math.hypot(xx,yy,zz));
-         cumulative[k]=total;
-       }
-       const material=gltf.materials[primitive.material||0]?.name.toLowerCase()||'';
-       const tone=/gold|brass|copper|thermal|champagne/.test(material)?210:/black|dark|graphite|rubber|carbon/.test(material)?32:116;
-       if(total>0){
-         sum+=total;
-         primitives.push({points,ids,cumulative,total,threshold:sum,tone});
-       }
+       const normals=primitive.attributes.NORMAL===undefined?undefined:
+         transformVertexNormals(cached(primitive.attributes.NORMAL),transform);
+       // These are actual exported names, including generic tex/blinn labels.
+       // Topology/dimensions supply structural importance; names only tag tone.
+       const material=gltf.materials[primitive.material]?.name||'neutral';
+       primitives.push({points,ids,normals,region:material+' / '+(node.name||mesh.name||'mesh')});
      }
    }
-   for(const child of n.children||[])visit(child,transform);
+   for(const child of node.children||[])visit(child,transform);
  }
  visit(root,new Matrix4());
- if(!primitives.length||!Number.isFinite(sum))throw Error('Invalid sampling geometry '+name);
- function sampleCDF(a,x,property=null){
-   let lo=0,hi=a.length;
-   while(lo<hi){const mid=(lo+hi)>>1;const z=property?a[mid][property]:a[mid];if(z<x)lo=mid+1;else hi=mid;}
-   return Math.min(a.length-1,lo);
- }
- for(let k=0;k<COUNT;k++){
-   const p=primitives[sampleCDF(primitives,random()*sum,'threshold')];
-   const idx=sampleCDF(p.cumulative,random()*p.total);
-   const ia=p.ids[idx*3]*3,ib=p.ids[idx*3+1]*3,ic=p.ids[idx*3+2]*3;
-   const u=Math.sqrt(random()),v=random();
-   const x=barycentric(p.points,ia,ib,ic,u,v);
-   const y=barycentric(p.points,ia+1,ib+1,ic+1,u,v);
-   const z=barycentric(p.points,ia+2,ib+2,ic+2,u,v);
-   const ab=new Vector3(p.points[ib]-p.points[ia],p.points[ib+1]-p.points[ia+1],p.points[ib+2]-p.points[ia+2]);
-   const ac=new Vector3(p.points[ic]-p.points[ia],p.points[ic+1]-p.points[ia+1],p.points[ic+2]-p.points[ia+2]);
-   const normal=ab.cross(ac).normalize();
-   out.writeFloatLE(x,cursor);out.writeFloatLE(y,cursor+4);out.writeFloatLE(z,cursor+8);
-   out.writeInt8(Math.round(normal.x*127),cursor+12);
-   out.writeInt8(Math.round(normal.y*127),cursor+13);
-   out.writeInt8(Math.round(normal.z*127),cursor+14);
-   out.writeUInt8(p.tone,cursor+15);
+ const parts=prepareSurfaceParts(primitives);
+ const samples=sampleSurfaceParts(parts,COUNT,39143721+group*1013);
+ let toneMin=255,toneMax=0;
+ for(const sample of samples){
+   for(let axis=0;axis<3;axis++){
+     if(!Number.isFinite(sample.position[axis]))throw Error('Nonfinite sampled point '+name);
+     out.writeFloatLE(sample.position[axis],cursor+axis*4);
+     out.writeInt8(Math.round(sample.normal[axis]*127),cursor+12+axis);
+   }
+   out.writeUInt8(sample.tone,cursor+15);
+   toneMin=Math.min(toneMin,sample.tone);toneMax=Math.max(toneMax,sample.tone);
    cursor+=16;
  }
  const center=min.clone().add(max).multiplyScalar(.5);
- worldBounds[name]={center:center.toArray(),min:min.toArray(),max:max.toArray(),maxDimension:max.clone().sub(min).length()};
- console.log(name,'sampled',COUNT,'points; visible bounds center:',center.toArray().map(x=>+x.toFixed(2)), 'source primitives',primitives.length);
+ console.log(name,JSON.stringify({
+   count:COUNT,sourcePrimitives:primitives.length,connectedParts:parts.length,
+   center:center.toArray().map(x=>+x.toFixed(4)),
+   sourceMin:min.toArray(),sourceMax:max.toArray(),toneRange:[toneMin,toneMax],
+   densityBoostRange:[Math.min(...parts.map(p=>p.weight/p.area)),Math.max(...parts.map(p=>p.weight/p.area))].map(x=>+x.toFixed(3)),
+ }));
 }
 if(cursor!==out.length)throw Error('Unexpected position end');
+// Camera and original model-bounds are authoritative and deliberately read-only.
 writeFileSync('public/scene/surface-points.bin',out);
-writeFileSync('public/scene/model-bounds.json',JSON.stringify(worldBounds,null,2)+'\n');
-console.log('Wrote',out.length,'bytes of world-space points');
+console.log('Wrote',out.length,'bytes of world-space points in',((performance.now()-started)/1000).toFixed(3),'seconds');
