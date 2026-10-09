@@ -1,0 +1,18 @@
+Source 3D assets:
+70 meter dish — NASA/Ames Research Center
+https://science.nasa.gov/3d-resources/70-meter-dish/
+Curiosity Rover — NASA/JPL-Caltech
+https://science.nasa.gov/resource/curiosity-rover-3d-model/
+Apollo Lunar Module — NASA/Michael D. Carbajal
+https://science.nasa.gov/3d-resources/apollo-lunar-module/
+
+The scene preparation, analysis, region labels and camera animation are derivative work. They are not NASA-authored or NASA-reviewed outputs. No endorsement by NASA, JPL or Caltech is claimed or implied.
+
+NASA usage guidance:
+https://www.nasa.gov/nasa-brand-center/images-and-media/
+NASA 3D resource collection statement:
+https://github.com/nasa/NASA-3D-Resources
+Supplementary JPL media guidance:
+https://www.jpl.nasa.gov/jpl-image-use-policy/
+
+NASA's general guidance explicitly covers 3D polygon data and texture maps for informational, educational and personal-page use, subject to credit, no-endorsement, protected identifiers and third-party exceptions. This is not blanket clearance for promotional logos, merchandise, NFTs, or other restricted uses. A commercial or promotional final presentation requires a purpose-specific check of the applicable restrictions before publishing.

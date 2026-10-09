@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.DS_Store
+reference/
+模型/
+# Keep original camera_flight ZIP/BLEND/GLB archives private; deploy only approved derivative scene resources in public/scene.
