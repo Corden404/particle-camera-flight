@@ -28,17 +28,23 @@ The sequence is **sculpture → NASA 70m antenna → Curiosity rover → Apollo 
 | --- | --- |
 | Move the pointer across the scene | Push and drag nearby particles; leave a fading wave through the sculpture and background |
 | Scroll or swipe vertically | Move one chapter; repeated momentum does not queue extra chapters |
-| Right-side arrows | Previous/next chapter, bounded at the ends |
 | Background Arrow/Page keys or Space | Chapter navigation |
 | Space/Enter on a focused control | That control's native action |
-| First two large titles | Next chapter |
-| Work title | Open the work panel describing this camera-flight study |
-| Contact title | Open the contact panel with the existing GitHub profile |
-| Menu | Choose a chapter, reduce motion, change High/Eco quality, open GitHub or asset credits |
+| Large chapter titles | Display-only headings with no click navigation |
+| Sound button | Enable or mute ambient sound and interaction tones |
+| Menu | Choose a chapter, control sound and reduced motion, change High/Eco quality, open GitHub or asset credits |
 | Escape | Close a dismissible panel and restore focus |
 | Background M / Q | Toggle motion / quality |
 
-The successful hero retains only the four original two-line titles. Supporting content appears in panels. The work and contact destinations use the existing `Corden404` GitHub identity; project-specific repository URLs and email addresses are not fabricated.
+The hero retains the four original two-line titles as plain headings. The right-side progress rail and arrows are removed; scrolling, swiping, keyboard navigation and the menu remain available. The GitHub destination is an explicit menu link.
+
+## Cursor, sound and titles
+
+On fine-pointer devices, the scene uses a small warm dot and a thin following ring. The native pointer is replaced only over the canvas after the custom cursor is ready. Controls, dialogs, keyboard navigation, touch devices, reduced motion and frozen captures use the native pointer. Cursor dimensions, color and follow timing live in `src/ui/scene-cursor.css`.
+
+Sound starts **off** on a first visit. Use the header sound button or the menu control to enable a quiet synthesized ambient chord and short interaction tones. No external audio file is downloaded. The choice is saved under `leeq.audio.v1`; a remembered on preference still waits for a browser-permitted interaction before playback. Sound fades in and out, becomes quieter while a menu is open, and suspends when the page is hidden or the scene is unavailable. The fixed audio graph and click-voice limit are implemented in `src/audio/AmbientAudio.js`.
+
+Each title line enters and leaves through its own clipping mask. `TITLE_MOTION` in `src/approved-main.js` sets exit duration (0.28 s), entrance duration (0.78 s), line stagger (0.08 s) and travel (104%). The incoming heading appears near the end of the original five-second camera leg. Reduced motion shows the destination heading immediately. Edit the per-chapter proportions in `src/approved.css` and the continuous desktop/portrait sizing and placement in `src/layout/viewport.js`.
 
 ## Approved assets
 
@@ -75,7 +81,7 @@ The runtime measures the app rectangle and derives one continuous portrait weigh
 
 The sculptures use two morphing `THREE.Points` layers sharing 36,000 points in High (84% opaque, alpha-to-coverage depth-tested silhouette and 16% transparent reactive sparkle), with 70% of each layer's draw range in Eco. The atmosphere combines 1,900 colored spatial flecks, 72 near-lens particles and an independent responsive microdot grid. The grid uses 40–300 columns according to viewport width, reduced in Eco. All five draw objects are point clouds, with no solid meshes.
 
-Blue (`#4089dd`) and amber (`#f48c18`) color regions move across each form, blended toward luminance-matched neutral tones for a softer, lower-saturation finish; background flecks and the responsive microdot grid are desaturated separately. The desaturation weights live in `src/particles/sculpture.frag.glsl` and `src/particles/ApprovedParticleFields.js`. Limited silver highlights and crisp varied grains remain. Particle materials bypass ACES tone mapping to retain those colors. The sculpture emits calibrated display colors directly; the ambient materials convert their linear palette to sRGB. Grain diameters account for viewport height, projection, depth and cursor proximity. Opaque structural dots avoid depth-writing translucent holes; a slower and smaller settled rock/drift preserves the authored outline.
+Blue (`#4089dd`) and amber (`#f48c18`) color regions move across each form, blended toward luminance-matched neutral tones for a softer, lower-saturation finish; background flecks and the responsive microdot grid are desaturated separately. The desaturation weights live in `src/particles/sculpture.frag.glsl` and `src/particles/ApprovedParticleFields.js`. Limited silver highlights and crisp varied grains remain. Particle materials bypass ACES tone mapping to retain those colors. The sculpture emits calibrated display colors directly; the ambient materials convert their linear palette to sRGB. Grain diameters account for viewport height, projection, depth and cursor proximity. Opaque structural dots avoid depth-writing translucent holes; a slower and smaller settled rock/drift preserves the authored outline. Stable contour particles also have a one-CSS-pixel 50%-coverage diameter floor and a tighter feather, while their small idle drift is bounded in screen space. This targeted treatment affects the model's settled contour; the atmosphere, point count and approved camera data stay independent.
 
 Each of the three legs has its own scatter, swirl direction, bend, lift and camera-focus envelope. The underlying transition remains chapter-phase driven. Continuous bounded drift, traveling surface waves and gentle rocking are added around the current model center, including when a chapter is settled. The microdot grid has its own moving brightness and displacement waves. Pointer position and velocity drive a shared local force with an eight-sample wake that fades over roughly 1.8 seconds; reduced motion disables these offsets.
 
@@ -92,7 +98,9 @@ The panel has **Restore defaults** and **Copy parameters** (JSON, requiring clip
 
 | What to adjust | Active location |
 | --- | --- |
-| Chapter title text and panel content | `src/approved-main.js` |
+| Chapter title text and `TITLE_MOTION` timing | `src/approved-main.js` |
+| Scene cursor behavior and appearance | `src/ui/SceneCursor.js`, `src/ui/scene-cursor.css` |
+| Ambient chord, click tones, gain and fade durations | `src/audio/AmbientAudio.js` |
 | Title sizing, position and continuous layout limits | `src/layout/viewport.js` |
 | Fonts, line proportions, spacing, grain and panel styling | `src/approved.css` |
 | Dock framing and camera interpolation | `src/camera/ApprovedCamera.js` |
@@ -125,7 +133,7 @@ npm test
 npm run build
 ```
 
-The unit suites cover bounded/reversible navigation and wheel intent, native-key exclusions, viewport continuity and original camera poses, deterministic transit envelopes, exact sampling budgets and normalized interpolated normals. The asset and flight checks validate the deployable data contract and authored camera.
+The unit suites cover bounded/reversible navigation and wheel intent, native-key exclusions, viewport continuity and original camera poses, deterministic transit envelopes, exact sampling budgets, normalized interpolated normals, and audio consent, fades, lifecycle and asynchronous state races. The asset and flight checks validate the deployable data contract and authored camera.
 
 For reproducible visual inspection:
 
@@ -134,7 +142,7 @@ For reproducible visual inspection:
 - `/?capture=0.5&captureTime=4` freezes the midpoint of the first leg.
 - Use `capture=1`, `2` or `3` for the other docks.
 - With a capture query and no explicit time, the frozen time is zero.
-- `window.__LEEQ_DEBUG` exposes readiness, story/target, camera, point counts, layout, renderer info, frame count, live `interaction`, `goTo()` and `seek()`.
+- `window.__LEEQ_DEBUG` exposes readiness, story/target, camera, point counts, layout, renderer info, frame count, live `interaction`, `sound` state, `goTo()` and `seek()`.
 - Use a live `/?debug=1` page without capture parameters to assess idle movement and mouse response over several seconds. Frozen frames cannot verify these effects.
 
 Inspect actual desktop and phone renders when changing light, size or composition. A passing build does not establish visual quality or performance on every device. Local animation callback timings are not field Core Web Vitals or GPU timings.

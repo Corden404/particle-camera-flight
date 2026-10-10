@@ -52,6 +52,20 @@ button:focus-visible, a:focus-visible { outline: 2px solid #d5c6ad; outline-offs
 .approved-menu-button span:last-child { width: 18px; }
 .approved-menu-button:hover span:last-child { width: 27px; }
 
+.approved-sound-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-width: 68px; height: 44px; padding: 8px; margin-right: 12px;
+  border: 0; background: transparent; color: #8e969f; pointer-events: auto;
+  transition: color .2s;
+}
+.approved-sound-button svg { width: 22px; height: 22px; opacity: .68; }
+.approved-sound-label { min-width: 25px; font-size: 8px; letter-spacing: .12em; text-align: left; }
+.approved-sound-button:hover, .approved-sound-button[aria-pressed='true'] { color: #ddccb2; }
+.approved-sound-button[data-playing='true'] svg { opacity: 1; }
+.approved-sound-button:disabled { opacity: .4; cursor: default; }
+@media (max-width: 570px) { .approved-sound-button { margin-right: 3px; } }
+@media (prefers-reduced-motion: reduce) { .approved-sound-button { transition: none; } }
+
 /* Visual tuner stays out of the hero by default. It is a non-modal live
    instrument panel: GPU animation continues while its controls are focused. */
 .approved-visual-toggle {
@@ -158,38 +172,35 @@ button:focus-visible, a:focus-visible { outline: 2px solid #d5c6ad; outline-offs
 }
 
 .approved-chapter {
-  position: absolute; z-index: 4; left: max(var(--page-gutter), env(safe-area-inset-left));
-  top: var(--title-top); width: var(--title-width); transform: translateY(-50%);
-  pointer-events: none;
+  position: absolute; z-index: 4;
+  left: max(var(--page-gutter), env(safe-area-inset-left));
+  top: var(--title-top); width: var(--title-width);
+  transform: translateY(-50%); pointer-events: none;
 }
-.approved-chapter h1 { margin: 0; font: inherit; }
-.approved-title-button {
-  display: block; max-width: 100%; padding: 0; border: 0; background: transparent; color: inherit;
-  text-align: left; pointer-events: auto; transform-origin: left center;
-  font: 600 var(--title-size)/.98 'Oswald', Impact, Arial, sans-serif;
-  text-transform: uppercase; letter-spacing: -.018em;
-  --outline-scale: 1; --filled-scale: 1.42;
+.approved-chapter h1 { margin: 0; }
+.approved-title {
+  display: block; max-width: 100%; color: inherit; text-align: left;
+  font: 600 var(--title-size)/1.04 'Oswald', Impact, Arial, sans-serif;
+  text-transform: uppercase; letter-spacing: -.022em;
+  --outline-scale: 1; --filled-scale: 1.24;
 }
-#approved-title { display: block; }
-.approved-title-button .outline, .approved-title-button .filled { display: block; white-space: nowrap; }
-.approved-title-button .outline {
+.title-line {
+  display: block; overflow: hidden; width: max-content; max-width: 100%;
+  padding: .055em .04em .09em 0; margin-block: -.025em;
+}
+.title-ink { display: block; white-space: nowrap; transform-origin: left center; }
+.approved-title .outline {
   font-size: calc(var(--title-size) * var(--outline-scale));
-  color: transparent; -webkit-text-stroke: clamp(.8px, .075vw, 1.15px) #cdd2d8;
+  color: transparent;
+  -webkit-text-stroke: clamp(.8px, .065vw, 1.1px) #c5cbd2;
 }
-.approved-title-button .filled { font-size: calc(var(--title-size) * var(--filled-scale)); color: #f3f3f1; }
-.approved-title-button:hover .outline { -webkit-text-stroke-color: #f3e9d9; }
-#app[data-chapter='about'] .approved-title-button { --outline-scale: .96; --filled-scale: 1.46; }
-#app[data-chapter='work'] .approved-title-button { --outline-scale: 1.07; --filled-scale: .94; }
-#app[data-chapter='contact'] .approved-title-button { --outline-scale: 1.02; --filled-scale: 1.22; }
-.approved-steps {
-  position: absolute; z-index: 8; right: max(12px, calc(var(--page-gutter) * .63), env(safe-area-inset-right));
-  top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px;
+.approved-title .filled {
+  font-size: calc(var(--title-size) * var(--filled-scale)); color: #f0f0ec;
 }
-.approved-steps button { display: grid; place-items: center; color: #c6cbd1; border: 0; background: transparent; width: 44px; height: 44px; padding: 11px; }
-.approved-steps button svg { width: 18px; height: 18px; }
-.approved-steps button:disabled { opacity: .2; cursor: default; }
-.approved-steps-rail { height: clamp(54px, 11.5svh, 102px); width: 1px; background: linear-gradient(#30363e, #68717e, #30363e); position: relative; --progress: 0; }
-.approved-steps-rail i { display: block; position: absolute; top: calc(var(--progress) * (100% - 5px)); left: -2px; width: 5px; height: 5px; border-radius: 50%; background: #d2bea0; box-shadow: 0 0 12px #d2bea025; }
+#app[data-chapter='about'] .approved-title { --outline-scale: .97; --filled-scale: 1.30; }
+#app[data-chapter='work'] .approved-title { --outline-scale: 1.02; --filled-scale: .95; }
+#app[data-chapter='contact'] .approved-title { --outline-scale: 1; --filled-scale: 1.10; }
+
 .approved-overlay-menu, .approved-panel {
   position: absolute; inset: 0; z-index: 30; overflow: auto; overscroll-behavior: contain;
   background: rgba(3,5,7,.985); color: #efeff0; opacity: 0; visibility: hidden; pointer-events: none;

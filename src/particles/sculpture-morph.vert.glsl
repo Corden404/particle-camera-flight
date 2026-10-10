@@ -38,6 +38,7 @@ varying float vSilver;
 varying float vResponse;
 varying float vTwinkle;
 varying float vEdge;
+varying float vContour;
 
 #include <particle_interaction>
 
@@ -122,6 +123,14 @@ void main() {
   vec3 normal = dot(blendedNormal, blendedNormal) > 0.00000001 ?
     normalize(blendedNormal) : normalize(shadeStart.xyz + vec3(0.00001));
 
+  // Authored creases and the current view's grazing surfaces share one
+  // continuous coverage weight. Keep it separate from material/color edges.
+  vec4 anchorView = modelViewMatrix * vec4(center + local, 1.0);
+  vec3 anchorNormal = normalize(normalMatrix * normal);
+  float anchorFacing = dot(anchorNormal, normalize(-anchorView.xyz));
+  float silhouette = 1.0 - smoothstep(0.08, 0.30, abs(anchorFacing));
+  vContour = max(smoothstep(0.25, 0.80, vEdge), silhouette) * (1.0 - transit.w);
+
   // The settled surface stays alive: a slow coherent wave passes through it,
   // while individual grains drift by at most a small fraction of its silhouette.
   float life = uTime * uMotion;
@@ -139,9 +148,17 @@ void main() {
     mix(0.08, 1.0, uLayer) + grainDrift;
   livingOffset *= min(1.0, mix(0.012, 0.16, uLayer) /
     max(0.0001, length(livingOffset)));
-  // Boundary/crease particles anchor the shape at each settled chapter.
-  local += livingOffset * uMotion * uModelControls.w * (1.0 - transit.w * 0.38) *
+  // Preserve the interior flow; contour grains move by a fraction of a CSS
+  // pixel at this depth, even when the authored model is close to the camera.
+  vec3 surfaceOffset = livingOffset *
     mix(1.0, 0.24, vEdge * (1.0 - transit.w));
+  float worldPerCssPixel = 2.0 * max(0.001, -anchorView.z) /
+    max(1.0, uViewportHeight * projectionMatrix[1][1]);
+  float contourDrift = worldPerCssPixel * mix(0.18, 0.45, uLayer);
+  vec3 contourOffset = surfaceOffset * min(1.0, contourDrift /
+    max(0.0001, length(surfaceOffset)));
+  local += mix(surfaceOffset, contourOffset, vContour) * uMotion *
+    uModelControls.w * (1.0 - transit.w * 0.38);
 
   // Rock about the current sculpture center, so distant world-space chapters
   // stay framed while the form catches changing blue, amber and white bands.
@@ -204,9 +221,16 @@ void main() {
   sprite *= (0.86 + 0.24 * vTwinkle) * mix(1.0, 0.84, vEdge);
   float px = sprite * uPixelRatio * projectionScale * (14.0 / max(3.0, depth));
   px += response.x * mix(2.4, 7.5, uLayer) * uPixelRatio;
-  gl_PointSize = clamp(px * uModelControls.z * (1.0 + transit.w * 0.10),
+  float basePointSize = clamp(px * uModelControls.z * (1.0 + transit.w * 0.10),
     mix(mix(2.0, 1.65, vEdge), 2.8, uLayer) * uPixelRatio * uModelControls.z,
     mix(15.0, 26.0, uLayer) * uPixelRatio * uModelControls.z);
+  // The fragment's 50%-coverage diameter is edgeStart + edgeEnd. Protect
+  // one CSS pixel only along stable contours; larger/interior grains retain
+  // their original size, and the sparkle layer never becomes a solid shell.
+  float coreDiameter = mix(0.53 + 0.009 * vEdge,
+    0.578 - 0.022 * vEdge, vContour);
+  float contourPointSize = max(basePointSize, uPixelRatio / coreDiameter);
+  gl_PointSize = mix(basePointSize, contourPointSize, vContour * (1.0 - uLayer));
 
   vec3 viewNormal = normalize(normalMatrix * normal);
   vec3 toEye = normalize(-view.xyz);

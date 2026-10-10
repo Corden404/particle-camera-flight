@@ -1,0 +1,61 @@
+/* Decoration is inert until both its CSS and a real scene mouse are ready. */
+.scene-cursor-dot,
+.scene-cursor-ring {
+  --scene-cursor-ready: 1;
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 90;
+  pointer-events: none;
+  opacity: 0;
+  border-radius: 50%;
+  contain: layout style;
+}
+
+.scene-cursor-dot {
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  background: #eee9de;
+}
+
+.scene-cursor-ring {
+  width: 24px;
+  height: 24px;
+  box-sizing: border-box;
+  margin: -12px 0 0 -12px;
+  border: 1px solid rgba(238, 233, 222, .28);
+  transition: transform 80ms ease-out;
+}
+
+.scene-cursor-ring::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border: inherit;
+  border-radius: inherit;
+  opacity: 0;
+  transition: transform 90ms ease-out;
+}
+
+.scene-cursor-ring.is-pressed {
+  border-color: transparent;
+}
+
+.scene-cursor-ring.is-pressed::after {
+  border-color: rgba(238, 233, 222, .28);
+  opacity: 1;
+  transform: scale(.82);
+}
+
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  #app.scene-cursor-active .scene-cursor-dot,
+  #app.scene-cursor-active .scene-cursor-ring {
+    opacity: 1;
+  }
+
+  #app.scene-cursor-active #approved-scene,
+  #app.scene-cursor-active [data-scene-cursor-zone] {
+    cursor: none;
+  }
+}

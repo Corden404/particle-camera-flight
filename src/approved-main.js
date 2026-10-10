@@ -8,6 +8,8 @@ import { Navigation, WheelIntent, getKeyIntent, isInteractiveTarget } from './in
 import { createModalController } from './ui/overlays.js';
 import { PointerField } from './interaction/PointerField.js';
 import { createVisualControls } from './ui/VisualControls.js';
+import { createSceneCursor } from './ui/SceneCursor.js';
+import { createAmbientAudio } from './audio/AmbientAudio.js';
 import './approved.css';
 
 // The four approved Blender stops. Only these big titles appear on the hero.
@@ -17,6 +19,7 @@ const chapters = [
   { id: 'work', lines: ['BUILDING', "WHAT'S NEXT"] },
   { id: 'contact', lines: ['MAKE', 'CONTACT'] },
 ];
+const TITLE_MOTION = Object.freeze({ exit: 0.28, enter: 0.78, stagger: 0.08, travel: 104 });
 const closeIcon = "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.4' aria-hidden='true'><path d='M5 5 19 19M19 5 5 19'/></svg>";
 const app = document.querySelector('#app');
 app.innerHTML = [
@@ -24,19 +27,13 @@ app.innerHTML = [
   "<div class='approved-vignette' aria-hidden='true'></div>",
   "<div class='approved-grain' aria-hidden='true'></div>",
   "<header class='approved-header'>",
+  "<button type='button' class='approved-sound-button' id='sound-button' data-sound-toggle lang='zh-CN' aria-label='开启声音' aria-pressed='false' title='开启声音'>",
+  "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.25' stroke-linecap='round' aria-hidden='true'><path d='M5 10v4m4-8v12m4-14v16m4-13v10m4-6v2'/></svg><span class='approved-sound-label' aria-hidden='true'>OFF</span></button>",
   "<button type='button' class='approved-visual-toggle' id='visual-button' lang='zh-CN' aria-label='打开视觉调节' aria-controls='visual-controls' aria-expanded='false' title='视觉调节'>",
   "<svg viewBox='0 0 24 24' aria-hidden='true' fill='none' stroke='currentColor' stroke-width='1.25' stroke-linecap='round'><path d='M4 7h16M4 12h16M4 17h16'/><circle cx='9' cy='7' r='2.1' fill='#080b0d'/><circle cx='16' cy='12' r='2.1' fill='#080b0d'/><circle cx='11' cy='17' r='2.1' fill='#080b0d'/></svg></button>",
   "<button type='button' class='approved-menu-button' id='menu-button' aria-label='Open navigation' aria-controls='approved-overlay-menu' aria-haspopup='dialog' aria-expanded='false'>",
   "<span></span><span></span></button></header>",
-  "<main class='approved-chapter'><h1>",
-  "<button type='button' class='approved-title-button' id='title-button'><span id='approved-title'></span></button>",
-  "</h1></main>",
-  "<nav class='approved-steps' aria-label='Chapter navigation'>",
-  "<button type='button' id='approved-prev' aria-label='Previous chapter'>",
-  "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.35' aria-hidden='true'><path d='m6 15 6-6 6 6'/></svg></button>",
-  "<div class='approved-steps-rail' aria-hidden='true'><i></i></div>",
-  "<button type='button' id='approved-next' aria-label='Next chapter'>",
-  "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.35' aria-hidden='true'><path d='m6 9 6 6 6-6'/></svg></button></nav>",
+  "<main class='approved-chapter'><h1 class='approved-title' id='approved-title'></h1></main>",
   "<aside class='visual-controls' id='visual-controls' lang='zh-CN' role='region' aria-labelledby='visual-controls-title' hidden inert>",
   "<div class='visual-controls-head'><div><p class='visual-controls-eyebrow'>LIVE TUNING / 01</p><h2 id='visual-controls-title'>视觉调节</h2></div>",
   "<button type='button' class='visual-controls-close' data-visual-close aria-label='关闭视觉调节'>" + closeIcon + "</button></div>",
@@ -50,24 +47,13 @@ app.innerHTML = [
   "<h2 class='approved-sr-only' id='approved-menu-title'>Choose a chapter</h2>",
   "<button type='button' id='close-menu' class='approved-menu-close' aria-label='Close navigation' data-close-panel data-initial-focus>" + closeIcon + "</button>",
   chapters.map((chapter, index) => "<button type='button' class='approved-menu-item' data-chapter='" + index + "'><span>" + chapter.lines.join(' ') + "</span></button>").join(''),
-  "<div class='approved-menu-preferences' role='group' aria-label='Display preferences'>",
+  "<div class='approved-menu-preferences' role='group' aria-label='Display and sound preferences'>",
   "<button type='button' id='motion-toggle' aria-pressed='false'>Reduce motion: Off</button>",
-  "<button type='button' id='quality-toggle' aria-pressed='true'>Quality: High</button></div>",
+  "<button type='button' id='quality-toggle' aria-pressed='true'>Quality: High</button>",
+  "<button type='button' id='menu-sound-toggle' data-sound-toggle lang='zh-CN' aria-pressed='false'>声音：关闭</button></div>",
   "<div class='approved-external-icons'>",
   "<a href='https://github.com/Corden404' target='_blank' rel='noopener noreferrer' aria-label='GitHub profile' title='GitHub'><svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.3' aria-hidden='true'><path d='M8 19c-5-1-5-5-5-7a9 9 0 0 1 2-6l-.2-3L8 4a10 10 0 0 1 8 0l3-1-.2 3a9 9 0 0 1 2 6c0 2-1 6-5 7M9 21v-4c0-1-1-2-2-2M15 21v-4c0-1 1-2 2-2'/></svg></a>",
   "<a href='./scene/ASSET_CREDITS.txt' target='_blank' rel='noopener noreferrer' aria-label='Model credits and licenses' title='Asset credits'><svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.3' aria-hidden='true'><circle cx='12' cy='12' r='9'/><path d='M12 11v6M12 7h.01'/></svg></a></div></div>",
-  "<section class='approved-panel' id='work-panel' role='dialog' aria-modal='true' aria-labelledby='work-panel-title' aria-describedby='work-panel-copy' aria-hidden='true' tabindex='-1' data-modal hidden inert>",
-  "<button type='button' class='approved-menu-close' aria-label='Close work' data-close-panel data-initial-focus>" + closeIcon + "</button>",
-  "<div class='approved-panel-inner'><p class='approved-panel-kicker'>Selected work</p>",
-  "<h2 class='approved-panel-title' id='work-panel-title'>Interactive camera-flight study</h2>",
-  "<p class='approved-panel-copy' id='work-panel-copy'>Four particle sculptures connected by one continuous camera route. A study in form, motion, and interaction.</p>",
-  "<a class='approved-panel-link' href='https://github.com/Corden404?tab=repositories' target='_blank' rel='noopener noreferrer'>Explore repositories</a></div></section>",
-  "<section class='approved-panel' id='contact-panel' role='dialog' aria-modal='true' aria-labelledby='contact-panel-title' aria-describedby='contact-panel-copy' aria-hidden='true' tabindex='-1' data-modal hidden inert>",
-  "<button type='button' class='approved-menu-close' aria-label='Close contact' data-close-panel data-initial-focus>" + closeIcon + "</button>",
-  "<div class='approved-panel-inner'><p class='approved-panel-kicker'>Make contact</p>",
-  "<h2 class='approved-panel-title' id='contact-panel-title'>Let's connect</h2>",
-  "<p class='approved-panel-copy' id='contact-panel-copy'>Find Corden404 on GitHub.</p>",
-  "<a class='approved-panel-link' href='https://github.com/Corden404' target='_blank' rel='noopener noreferrer'>GitHub — Corden404</a></div></section>",
   "<p class='approved-sr-only' id='approved-announcement' role='status' aria-live='polite' aria-atomic='true'></p>",
   "<section class='approved-loader' id='approved-loader' role='dialog' aria-modal='true' aria-labelledby='scene-status-title' aria-describedby='scene-status-copy' aria-hidden='true' tabindex='-1' data-modal hidden inert>",
   "<div class='approved-loader-content'><span class='approved-loader-mark' aria-hidden='true'></span>",
@@ -84,12 +70,10 @@ const loaderTitle = document.getElementById('scene-status-title');
 const loaderCopy = document.getElementById('scene-status-copy');
 const retryButton = document.getElementById('retry-scene');
 const title = document.getElementById('approved-title');
-const titleButton = document.getElementById('title-button');
+const soundButton = document.getElementById('sound-button');
+const menuSoundButton = document.getElementById('menu-sound-toggle');
 const menuButton = document.getElementById('menu-button');
 const menu = document.getElementById('approved-overlay-menu');
-const previousButton = document.getElementById('approved-prev');
-const nextButton = document.getElementById('approved-next');
-const rail = document.querySelector('.approved-steps-rail');
 const announcement = document.getElementById('approved-announcement');
 const motionButton = document.getElementById('motion-toggle');
 const qualityButton = document.getElementById('quality-toggle');
@@ -135,6 +119,9 @@ const visualControls = createVisualControls({
   }
 });
 const tuning = visualControls.settings;
+const sceneCursor = createSceneCursor({ root: app, disabled: true });
+const audio = createAmbientAudio({ disabled: frozenCapture, onChange: syncSoundControls });
+audio.setVisible(!document.hidden);
 
 const modals = createModalController({
   root: app,
@@ -142,6 +129,8 @@ const modals = createModalController({
   fallbackFocus: menuButton,
   onChange(dialog) {
     menuButton.setAttribute('aria-expanded', String(dialog === menu));
+    sceneCursor.setEnabled(ready && !dialog && !reducedMotion && !frozenCapture);
+    audio.setDucked(Boolean(dialog));
     if (dialog) {
       visualControls.close({ restoreFocus: false });
       stopFrames();
@@ -154,35 +143,53 @@ function announce(message) {
 }
 
 function syncNavigationControls() {
-  previousButton.disabled = state.target === 0;
-  nextButton.disabled = state.target === 3;
-  titleButton.disabled = state.inflight;
   menu.querySelectorAll('[data-chapter]').forEach(button => {
     if (Number(button.dataset.chapter) === state.target) button.setAttribute('aria-current', 'page');
     else button.removeAttribute('aria-current');
   });
 }
 
+function syncSoundControls(status) {
+  const label = !status.supported ? '声音不可用' : status.enabled && status.locked
+    ? '恢复声音' : status.enabled ? '关闭声音' : '开启声音';
+  for (const button of [soundButton, menuSoundButton]) {
+    button.disabled = !status.supported || frozenCapture;
+    button.setAttribute('aria-pressed', String(status.enabled));
+    button.setAttribute('aria-label', frozenCapture ? '截图模式下声音已关闭' : label);
+    button.title = label;
+  }
+  soundButton.dataset.playing = String(status.playing);
+  soundButton.querySelector('.approved-sound-label').textContent =
+    status.enabled && status.locked ? 'START' : status.enabled ? 'ON' : 'OFF';
+  menuSoundButton.textContent = !status.supported ? '声音：不可用' :
+    status.enabled && status.locked ? '声音：点击恢复' : '声音：' + (status.enabled ? '开启' : '关闭');
+}
+
 function renderTitle(index) {
   const chapter = chapters[index];
-  title.replaceChildren(...chapter.lines.map((line, lineIndex) => {
-    const span = document.createElement('span');
-    span.className = lineIndex === 0 ? 'outline' : 'filled';
-    span.textContent = line;
-    return span;
-  }));
-  const action = index === 2 ? 'View work' : index === 3 ? 'View contact' : 'Next chapter';
-  titleButton.setAttribute('aria-label', chapter.lines.join(' ') + ': ' + action);
-  if (index >= 2) {
-    titleButton.setAttribute('aria-haspopup', 'dialog');
-    titleButton.setAttribute('aria-controls', index === 2 ? 'work-panel' : 'contact-panel');
-  } else {
-    titleButton.removeAttribute('aria-haspopup');
-    titleButton.removeAttribute('aria-controls');
+  if (!title.children.length) {
+    title.replaceChildren(...chapter.lines.map((line, lineIndex) => {
+      const mask = document.createElement('span');
+      mask.className = 'title-line';
+      mask.setAttribute('aria-hidden', 'true');
+      const ink = document.createElement('span');
+      ink.className = 'title-ink ' + (lineIndex === 0 ? 'outline' : 'filled');
+      mask.append(ink);
+      return mask;
+    }));
   }
+  title.querySelectorAll('.title-ink').forEach((ink, lineIndex) => {
+    ink.textContent = chapter.lines[lineIndex];
+  });
+  title.setAttribute('aria-label', chapter.lines.join(' '));
   app.dataset.chapter = chapter.id;
   syncNavigationControls();
   if (location.hash !== '#' + chapter.id) history.replaceState(null, '', '#' + chapter.id);
+}
+
+function resetTitle(visible = true) {
+  gsap.set(title, { opacity: visible ? 1 : 0 });
+  gsap.set(title.querySelectorAll('.title-ink'), { opacity: 1, yPercent: 0 });
 }
 
 function refreshResolution() {
@@ -232,7 +239,6 @@ function renderScene() {
   ) * parallax, -0.90, 0.90));
   surfaces.update(time, state.story, !reducedMotion, camera, interaction, tuning);
   ambientField.update(time, state.story, !reducedMotion, camera, interaction, tuning);
-  rail.style.setProperty('--progress', (state.story / 3).toFixed(4));
   renderer.render(scene, camera);
   frameCount++;
 }
@@ -253,17 +259,23 @@ function applyTransition(transition) {
   if (!transition) return;
   runningTween?.kill();
   runningTween = null;
-  gsap.killTweensOf(titleButton);
+  const inks = title.querySelectorAll('.title-ink');
+  gsap.killTweensOf([title, ...inks]);
   syncNavigationControls();
   if (transition.duration === 0) {
     renderTitle(transition.to);
     app.classList.remove('is-travelling');
-    gsap.set(titleButton, { opacity: 1, y: 0 });
+    resetTitle();
     announce(chapters[transition.to].lines.join(' '));
     requestFrame();
     return;
   }
   const { duration, revision } = transition;
+  const direction = Math.sign(transition.to - state.story) || 1;
+  const exitDuration = Math.min(TITLE_MOTION.exit, duration * 0.15);
+  const enterDuration = Math.min(TITLE_MOTION.enter, duration * 0.5);
+  const stagger = Math.min(TITLE_MOTION.stagger, duration * 0.08);
+  const reveal = duration - enterDuration - stagger;
   app.classList.add('is-travelling');
   runningTween = gsap.timeline({
     paused: document.hidden,
@@ -273,23 +285,26 @@ function applyTransition(transition) {
       runningTween = null;
       renderTitle(transition.to);
       app.classList.remove('is-travelling');
-      gsap.set(titleButton, { opacity: 1, y: 0 });
+      resetTitle();
       announce(chapters[transition.to].lines.join(' '));
       requestFrame();
     }
   });
-  runningTween.to(titleButton, { opacity: 0, y: -18, duration: Math.min(0.37, duration * 0.2), ease: 'power2.in' }, 0);
-  // Keep Blender's authored timing: one full adjacent leg is exactly five seconds.
+  runningTween.to(inks, {
+    opacity: 0, yPercent: -direction * TITLE_MOTION.travel,
+    duration: exitDuration, stagger, ease: 'power2.in'
+  }, 0);
+  runningTween.set(title, { opacity: 0 }, exitDuration + stagger);
+  // Each complete adjacent leg preserves the original five-second camera route.
   runningTween.to(state, { story: transition.to, duration, ease: 'none' }, 0);
-  const reveal = Math.max(0, duration - 0.76);
   runningTween.call(() => {
-    if (revision !== state.revision) return;
-    renderTitle(transition.to);
-    gsap.set(titleButton, { y: 23 });
+    if (revision === state.revision) renderTitle(transition.to);
   }, [], reveal);
-  const revealDuration = Math.min(0.65, duration);
-  const revealStart = Math.min(reveal + 0.02, Math.max(0, duration - revealDuration));
-  runningTween.to(titleButton, { opacity: 1, y: 0, duration: revealDuration, ease: 'power2.out' }, revealStart);
+  runningTween.set(title, { opacity: 1 }, reveal);
+  runningTween.set(inks, { yPercent: direction * TITLE_MOTION.travel, opacity: 0 }, reveal);
+  runningTween.to(inks, {
+    opacity: 1, yPercent: 0, duration: enterDuration, stagger, ease: 'power3.out'
+  }, reveal);
   requestFrame();
 }
 
@@ -314,7 +329,13 @@ function setReducedMotion(value, explicit = true) {
   if (reducedMotion) {
     stopFrames();
     if (state.inflight) applyTransition(state.goTo(state.target, { instant: true }));
+    else {
+      runningTween?.kill();
+      runningTween = null;
+      resetTitle();
+    }
   }
+  sceneCursor.setEnabled(ready && !modals.active && !reducedMotion && !frozenCapture);
   updatePreferences();
   announce('Reduced motion ' + (reducedMotion ? 'on.' : 'off.'));
   requestFrame();
@@ -341,14 +362,19 @@ menu.querySelectorAll('[data-chapter]').forEach(button => {
     goTo(Number(button.dataset.chapter));
   });
 });
-titleButton.addEventListener('click', () => {
-  if (!ready || state.inflight) return;
-  if (state.target >= 2) {
-    modals.open(document.getElementById(state.target === 2 ? 'work-panel' : 'contact-panel'), { trigger: titleButton });
-  } else step(1);
+function toggleSound() {
+  if (audio.state.enabled && audio.state.locked) void audio.unlock();
+  else void audio.setEnabled(!audio.state.enabled);
+}
+soundButton.addEventListener('click', toggleSound);
+menuSoundButton.addEventListener('click', toggleSound);
+// A click follows a completed tap, so dragging or swiping never triggers sound.
+app.addEventListener('click', async event => {
+  if (!event.isTrusted || !ready || frozenCapture || !audio.state.enabled ||
+    event.target.closest('[data-sound-toggle]') || visualPanel.contains(event.target)) return;
+  if (audio.state.locked) await audio.unlock();
+  audio.playClick(isInteractiveTarget(event.target) ? 'ui' : 'scene');
 });
-nextButton.addEventListener('click', () => step(1));
-previousButton.addEventListener('click', () => step(-1));
 motionButton.addEventListener('click', () => setReducedMotion(!reducedMotion));
 qualityButton.addEventListener('click', toggleQuality);
 motionPreference.addEventListener('change', event => {
@@ -436,6 +462,7 @@ addEventListener('resize', refreshResolution);
 const resizeObserver = new ResizeObserver(refreshResolution);
 resizeObserver.observe(app);
 document.addEventListener('visibilitychange', () => {
+  audio.setVisible(!document.hidden);
   if (document.hidden) {
     stopFrames();
     runningTween?.pause();
@@ -444,6 +471,9 @@ document.addEventListener('visibilitychange', () => {
     requestFrame();
   }
 });
+
+addEventListener('pagehide', () => audio.setVisible(false));
+addEventListener('pageshow', () => audio.setVisible(!document.hidden));
 
 function disposeRuntime() {
   stopFrames();
@@ -460,6 +490,8 @@ function failRuntime(error, message = 'The 3D scene could not be loaded. You can
   loadGeneration++;
   clearTimeout(loadTimeout);
   ready = false;
+  audio.setReady(false);
+  sceneCursor.setEnabled(false);
   initializing = false;
   lastError = error instanceof Error ? error.message : String(error);
   runningTween?.kill();
@@ -489,6 +521,8 @@ async function initialize(fromRetry = false) {
   const generation = ++loadGeneration;
   initializing = true;
   ready = false;
+  audio.setReady(false);
+  sceneCursor.setEnabled(false);
   if (canvasNeedsReplacement) {
     // Disposal cannot restore a lost context. A fresh canvas obtains a new one.
     // Restore background inert state before cloning, then let the loader record
@@ -548,15 +582,21 @@ async function initialize(fromRetry = false) {
     if (generation !== loadGeneration) return;
     clearTimeout(loadTimeout);
     initializing = false;
+    audio.setReady(true);
     modals.close({ force: true, restoreFocus: fromRetry });
     renderTitle(Math.round(state.story));
     if (Math.abs(state.story - Math.round(state.story)) > 0.02) {
       app.classList.add('is-travelling');
-      titleButton.style.opacity = '0';
-      titleButton.disabled = true;
+      resetTitle(false);
     } else {
       app.classList.remove('is-travelling');
-      gsap.set(titleButton, { opacity: 1, y: 0 });
+      resetTitle();
+      if (!reducedMotion && !frozenCapture) {
+        runningTween = gsap.timeline({ paused: document.hidden, onComplete() { runningTween = null; } });
+        runningTween.fromTo(title.querySelectorAll('.title-ink'),
+          { opacity: 0, yPercent: TITLE_MOTION.travel },
+          { opacity: 1, yPercent: 0, duration: 0.92, stagger: TITLE_MOTION.stagger, ease: 'power3.out' }, 0.12);
+      }
     }
     if (!reducedMotion && !frozenCapture) requestFrame();
   } catch (error) {
@@ -583,6 +623,7 @@ if (urlParams.has('debug') || captureStory !== null) window.__LEEQ_DEBUG = {
   get settled() { return state.settled; },
   get layout() { return { ...layout }; },
   get highQuality() { return highQuality; },
+  get sound() { return { ...audio.state }; },
   get reducedMotion() { return reducedMotion; },
   get renderer() { return renderer; },
   get rendererInfo() { return renderer?.info ?? null; },
@@ -599,8 +640,7 @@ if (urlParams.has('debug') || captureStory !== null) window.__LEEQ_DEBUG = {
     renderTitle(Math.round(state.story));
     const betweenStops = Math.abs(state.story - Math.round(state.story)) > 0.02;
     app.classList.toggle('is-travelling', betweenStops);
-    gsap.set(titleButton, { opacity: betweenStops ? 0 : 1, y: 0 });
-    titleButton.disabled = betweenStops;
+    resetTitle(!betweenStops);
     requestFrame();
   }
 };

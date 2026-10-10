@@ -12,17 +12,22 @@ varying float vSilver;
 varying float vResponse;
 varying float vTwinkle;
 varying float vEdge;
+varying float vContour;
 
 void main() {
   float radius = length(gl_PointCoord - vec2(0.5));
   // Fine depth-writing cores preserve the authored surface while leaving
   // visible gaps between grains. A smaller blended core carries the sparkle.
   if (radius > mix(0.30, 0.22, uLayer)) discard;
-  // Tighten feature grains without widening the existing fine particle cores.
+  // Contours gain core coverage inside the same outer radius. A narrower
+  // transition keeps individual grains crisp without a halo or color boost.
   float edgeStart = mix(0.23, 0.25, vEdge);
   float edgeEnd = mix(0.30, 0.289, vEdge);
+  edgeStart = mix(edgeStart, edgeEnd - 0.022, vContour);
+  float sparkleStart = mix(0.07, 0.115, vContour);
+  float sparkleEnd = mix(0.205, 0.185, vContour);
   float grain = uLayer < 0.5 ? 1.0 - smoothstep(edgeStart, edgeEnd, radius) :
-    1.0 - smoothstep(0.07, 0.205, radius);
+    1.0 - smoothstep(sparkleStart, sparkleEnd, radius);
 
   // Deliberately match the reference's untonemapped sRGB particle palette.
   // These are final display values: applying ACES or another transfer here
