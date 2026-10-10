@@ -13,6 +13,8 @@ import { createAmbientAudio } from './audio/AmbientAudio.js';
 import { sampleTitleMotion, TITLE_MOTION } from './interaction/TitleMotion.js';
 import './approved.css';
 
+const moduleStartedAt = performance.now();
+
 // The four approved Blender stops. Only these big titles appear on the hero.
 const chapters = [
   { id: 'home', lines: ['SCULPTING', 'IDEAS'] },
@@ -92,6 +94,7 @@ let ready = false;
 let initializing = false;
 let loadGeneration = 0;
 let loadTimeout;
+let loadController;
 let runningTween;
 let introTween;
 let titleInks = [];
@@ -103,6 +106,7 @@ let frameId = 0;
 let frameCount = 0;
 let startedAt;
 let lastError = null;
+let startupMetrics = {};
 // The published site uses the approved preset, not per-visitor saved slider values.
 const tuning = VISUAL_DEFAULTS;
 const sceneCursor = createSceneCursor({ root: app, disabled: true });
@@ -490,6 +494,8 @@ function disposeRuntime() {
 
 function failRuntime(error, message = 'The 3D scene could not be loaded. You can retry or visit GitHub.') {
   loadGeneration++;
+  loadController?.abort();
+  loadController = undefined;
   clearTimeout(loadTimeout);
   ready = false;
   audio.setReady(false);
@@ -523,7 +529,11 @@ canvas.addEventListener('webglcontextlost', onContextLost);
 async function initialize(fromRetry = false) {
   if (initializing) return;
   const generation = ++loadGeneration;
+  loadController?.abort();
+  const controller = new AbortController();
+  loadController = controller;
   stopTitleIntro();
+  startupMetrics = { moduleReadyMs: moduleStartedAt, initializeStartedMs: performance.now() };
   initializing = true;
   ready = false;
   audio.setReady(false);
@@ -564,8 +574,8 @@ async function initialize(fromRetry = false) {
     refreshResolution();
     const currentRenderer = renderer;
     const [path, sculpture] = await Promise.all([
-      loadApprovedCamera(),
-      createMorphSculpture(currentRenderer).then(resource => {
+      loadApprovedCamera({ signal: controller.signal }),
+      createMorphSculpture(currentRenderer, { signal: controller.signal }).then(resource => {
         if (generation !== loadGeneration) {
           resource.dispose();
           return null;
@@ -575,6 +585,7 @@ async function initialize(fromRetry = false) {
       })
     ]);
     if (generation !== loadGeneration) return;
+    startupMetrics.assetsReadyMs = performance.now();
     cameraPath = path;
     surfaces = sculpture;
     ambientField = createFreeAmbientParticles(renderer, cameraPath.data);
@@ -583,10 +594,15 @@ async function initialize(fromRetry = false) {
     refreshResolution();
     startedAt ??= performance.now();
     ready = true;
+    const firstFrameStartedAt = performance.now();
     renderScene();
     if (generation !== loadGeneration) return;
+    startupMetrics.firstFrameMs = performance.now() - firstFrameStartedAt;
     clearTimeout(loadTimeout);
+    loadController = undefined;
     initializing = false;
+    startupMetrics.readyMs = performance.now();
+    if (urlParams.has('debug')) console.info('LEEQ startup ' + JSON.stringify(startupMetrics));
     audio.setReady(true);
     modals.close({ force: true, restoreFocus: fromRetry });
     const betweenStops = Math.abs(state.story - Math.round(state.story)) > 0.02;
@@ -613,6 +629,7 @@ if (urlParams.has('debug') || captureStory !== null) window.__LEEQ_DEBUG = {
   get surfaceCount() { return surfaces?.count ?? 0; },
   get morphing() { return surfaces?.morphing ?? false; },
   get ready() { return ready; },
+  get startup() { return { ...startupMetrics }; },
   get moving() { return state.inflight; },
   get target() { return state.target; },
   get settled() { return state.settled; },
