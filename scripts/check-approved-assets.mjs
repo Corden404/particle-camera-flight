@@ -17,15 +17,24 @@ for(let i=0;i<groups*count;i++){
 }
 assert.ok(edgePoints>count*groups*0.15,'baked edges must survive serialization');
 assert.ok(!fs.existsSync('public/scene/approved-models.glb'),'No solid geometry should be shipped to the browser');
-const buffer=fs.readFileSync('reference/generated-camera-source/approved-models.glb');
-assert.equal(buffer.subarray(0,4).toString('ascii'),'glTF');
-assert.equal(buffer.readUInt32LE(4),2);
-assert.equal(buffer.readUInt32LE(8),buffer.length);
-const json=JSON.parse(buffer.toString('utf8',20,20+buffer.readUInt32LE(12)));
-const rootNames=json.scenes[0].nodes.map(i=>json.nodes[i].name);
-assert.deepEqual(rootNames,['Model_Root_Sculpture','Model_Root_Dish70M','Model_Root_Curiosity','Model_Root_Apollo_Lm']);
-assert.equal(json.meshes.length,137);
-assert.ok(!json.images&&!json.textures&&!json.animations,'Compact GLB should not ship source textures/unused animations');
 assert.ok(fs.readFileSync('public/scene/ASSET_CREDITS.txt','utf8').includes('NASA'));
-console.log('PASS 4 approved model groups:',json.meshes.length,'meshes;',count,'surface points per model;', (points.length/1048576).toFixed(2),'MiB points');
-console.log('Offline mesh only:',(buffer.length/1048576).toFixed(2),'MiB, excluded from public deployment');
+console.log('PASS', groups, 'public model groups;', count, 'surface points per model;', (points.length/1048576).toFixed(2), 'MiB points');
+
+// The original GLB is intentionally ignored and absent on GitHub Actions.
+// Always validate the shipped derivative data; verify source geometry too
+// when the approved offline asset is available on a development machine.
+const offlineSource = 'reference/generated-camera-source/approved-models.glb';
+if (fs.existsSync(offlineSource)) {
+  const buffer = fs.readFileSync(offlineSource);
+  assert.equal(buffer.subarray(0,4).toString('ascii'),'glTF');
+  assert.equal(buffer.readUInt32LE(4),2);
+  assert.equal(buffer.readUInt32LE(8),buffer.length);
+  const json = JSON.parse(buffer.toString('utf8',20,20+buffer.readUInt32LE(12)));
+  const rootNames = json.scenes[0].nodes.map(i=>json.nodes[i].name);
+  assert.deepEqual(rootNames,['Model_Root_Sculpture','Model_Root_Dish70M','Model_Root_Curiosity','Model_Root_Apollo_Lm']);
+  assert.equal(json.meshes.length,137);
+  assert.ok(!json.images&&!json.textures&&!json.animations,'Compact GLB should not ship source textures/unused animations');
+  console.log('PASS approved offline geometry:', json.meshes.length, 'meshes;', (buffer.length/1048576).toFixed(2), 'MiB excluded from deployment');
+} else {
+  console.log('SKIP optional offline GLB inspection (private source not included in checkout)');
+}

@@ -19,9 +19,12 @@ function pose(story, weight, width = 1422, height = 804) {
   rig.sample(camera, story, weight);
   return camera;
 }
-test('original camera asset remains byte-identical', () => {
-  const digest = crypto.createHash('sha256').update(fs.readFileSync('public/scene/camera-path.json')).digest('hex');
-  assert.equal(digest, 'a5d2c58fa49f570777c53edd2fe961047751a32032eab6654c417fb35a56b113');
+test('original camera asset content survives platform line-ending conversion', () => {
+  // Git can normalize the final CRLF to LF on Linux. Hash canonical LF bytes
+  // so the authored camera data is verified without a host-specific newline.
+  const source = fs.readFileSync('public/scene/camera-path.json', 'utf8').replace(/\r\n/g, '\n');
+  const digest = crypto.createHash('sha256').update(source).digest('hex');
+  assert.equal(digest, '1cfe707e62d4bb8f79f2447ebfa72e951ea54c8ae72c2a3b87564dd21b05dcce');
 });
 test('wide viewports use the authored camera samples', () => {
   for (const frame of [0, 30, 60, 120, 180, 240, 300, 360]) {
