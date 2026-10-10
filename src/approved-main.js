@@ -10,7 +10,10 @@ import { PointerField } from './interaction/PointerField.js';
 import { VISUAL_DEFAULTS } from './controls/visual-settings.js';
 import { createSceneCursor } from './ui/SceneCursor.js';
 import { createAmbientAudio } from './audio/AmbientAudio.js';
+import { sampleTitleMotion, TITLE_MOTION } from './interaction/TitleMotion.js';
 import './approved.css';
+
+const moduleStartedAt = performance.now();
 
 // The four approved Blender stops. Only these big titles appear on the hero.
 const chapters = [
@@ -19,7 +22,6 @@ const chapters = [
   { id: 'work', lines: ['BUILDING', "WHAT'S NEXT"] },
   { id: 'contact', lines: ['MAKE', 'CONTACT'] },
 ];
-const TITLE_MOTION = Object.freeze({ exit: 0.28, enter: 0.78, stagger: 0.08, travel: 104 });
 const closeIcon = "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.4' aria-hidden='true'><path d='M5 5 19 19M19 5 5 19'/></svg>";
 const app = document.querySelector('#app');
 app.innerHTML = [
@@ -92,11 +94,19 @@ let ready = false;
 let initializing = false;
 let loadGeneration = 0;
 let loadTimeout;
+let loadController;
 let runningTween;
+let introTween;
+let titleInks = [];
+let displayedChapter = -1;
+const titlePose = {};
+const introState = { time: Infinity };
+const titleStyles = [{}, {}];
 let frameId = 0;
 let frameCount = 0;
 let startedAt;
 let lastError = null;
+let startupMetrics = {};
 // The published site uses the approved preset, not per-visitor saved slider values.
 const tuning = VISUAL_DEFAULTS;
 const sceneCursor = createSceneCursor({ root: app, disabled: true });
@@ -111,8 +121,7 @@ const modals = createModalController({
     menuButton.setAttribute('aria-expanded', String(dialog === menu));
     sceneCursor.setEnabled(ready && !dialog && !reducedMotion && !frozenCapture);
     audio.setDucked(Boolean(dialog));
-    if (dialog) stopFrames();
-    else requestFrame();
+    syncPlayback(Boolean(dialog));
   }
 });
 
@@ -156,18 +165,71 @@ function renderTitle(index) {
       return mask;
     }));
   }
-  title.querySelectorAll('.title-ink').forEach((ink, lineIndex) => {
+  titleInks = [...title.querySelectorAll('.title-ink')];
+  titleInks.forEach((ink, lineIndex) => {
     ink.textContent = chapter.lines[lineIndex];
   });
+  displayedChapter = index;
   title.setAttribute('aria-label', chapter.lines.join(' '));
   app.dataset.chapter = chapter.id;
   syncNavigationControls();
   if (location.hash !== '#' + chapter.id) history.replaceState(null, '', '#' + chapter.id);
 }
 
-function resetTitle(visible = true) {
-  gsap.set(title, { opacity: visible ? 1 : 0 });
-  gsap.set(title.querySelectorAll('.title-ink'), { opacity: 1, yPercent: 0 });
+function syncTitleMotion() {
+  const pose = sampleTitleMotion(state.story, titlePose);
+  if (displayedChapter !== pose.chapter) renderTitle(pose.chapter);
+  title.style.opacity = pose.visible ? '1' : '0';
+  for (let index = 0; index < titleInks.length; index++) {
+    const progress = THREE.MathUtils.clamp(
+      (introState.time - index * TITLE_MOTION.introStagger) / TITLE_MOTION.intro, 0, 1
+    );
+    const introHidden = (1 - progress) ** 4;
+    const opacity = pose.lines[index].opacity * (1 - introHidden);
+    const yPercent = pose.lines[index].yPercent + TITLE_MOTION.travel * introHidden;
+    const previous = titleStyles[index];
+    if (previous.opacity !== opacity) {
+      titleInks[index].style.opacity = String(opacity);
+      previous.opacity = opacity;
+    }
+    if (previous.yPercent !== yPercent) {
+      titleInks[index].style.transform = 'translateY(' + yPercent + '%)';
+      previous.yPercent = yPercent;
+    }
+  }
+}
+
+function stopTitleIntro() {
+  introTween?.kill();
+  introTween = null;
+  introState.time = Infinity;
+}
+
+function startTitleIntro() {
+  stopTitleIntro();
+  introState.time = -TITLE_MOTION.introDelay;
+  syncTitleMotion();
+  // Composing the intro with the story pose keeps early navigation continuous.
+  introTween = gsap.to(introState, {
+    time: TITLE_MOTION.intro + TITLE_MOTION.introStagger,
+    duration: TITLE_MOTION.introDelay + TITLE_MOTION.intro + TITLE_MOTION.introStagger,
+    ease: 'none',
+    paused: document.hidden || Boolean(modals.active),
+    onUpdate: syncTitleMotion,
+    onComplete() {
+      introTween = null;
+      introState.time = Infinity;
+      syncTitleMotion();
+    }
+  });
+}
+
+function syncPlayback(dialogOpen = Boolean(modals.active)) {
+  const paused = document.hidden || dialogOpen;
+  runningTween?.paused(paused);
+  introTween?.paused(paused);
+  if (paused) stopFrames();
+  else requestFrame();
 }
 
 function refreshResolution() {
@@ -202,6 +264,7 @@ function requestFrame() {
 }
 
 function renderScene() {
+  syncTitleMotion();
   const time = timeOverride ?? (frozenCapture ? 0 : (performance.now() - startedAt) / 1000);
   const interaction = pointerField.update(performance.now() / 1000, !reducedMotion);
   cameraPath.sample(camera, state.story, layout.portraitWeight);
@@ -237,52 +300,33 @@ function applyTransition(transition) {
   if (!transition) return;
   runningTween?.kill();
   runningTween = null;
-  const inks = title.querySelectorAll('.title-ink');
-  gsap.killTweensOf([title, ...inks]);
   syncNavigationControls();
   if (transition.duration === 0) {
-    renderTitle(transition.to);
+    stopTitleIntro();
     app.classList.remove('is-travelling');
-    resetTitle();
+    syncTitleMotion();
     announce(chapters[transition.to].lines.join(' '));
     requestFrame();
     return;
   }
   const { duration, revision } = transition;
-  const direction = Math.sign(transition.to - state.story) || 1;
-  const exitDuration = Math.min(TITLE_MOTION.exit, duration * 0.15);
-  const enterDuration = Math.min(TITLE_MOTION.enter, duration * 0.5);
-  const stagger = Math.min(TITLE_MOTION.stagger, duration * 0.08);
-  const reveal = duration - enterDuration - stagger;
   app.classList.add('is-travelling');
-  runningTween = gsap.timeline({
-    paused: document.hidden,
+  // Only the camera position owns navigation time; titles sample that same position.
+  runningTween = gsap.to(state, {
+    story: transition.to,
+    duration,
+    ease: 'none',
+    paused: document.hidden || Boolean(modals.active),
     onUpdate: requestFrame,
     onComplete() {
       if (!state.settle(revision)) return;
       runningTween = null;
-      renderTitle(transition.to);
       app.classList.remove('is-travelling');
-      resetTitle();
+      syncTitleMotion();
       announce(chapters[transition.to].lines.join(' '));
       requestFrame();
     }
   });
-  runningTween.to(inks, {
-    opacity: 0, yPercent: -direction * TITLE_MOTION.travel,
-    duration: exitDuration, stagger, ease: 'power2.in'
-  }, 0);
-  runningTween.set(title, { opacity: 0 }, exitDuration + stagger);
-  // Each complete adjacent leg preserves the original five-second camera route.
-  runningTween.to(state, { story: transition.to, duration, ease: 'none' }, 0);
-  runningTween.call(() => {
-    if (revision === state.revision) renderTitle(transition.to);
-  }, [], reveal);
-  runningTween.set(title, { opacity: 1 }, reveal);
-  runningTween.set(inks, { yPercent: direction * TITLE_MOTION.travel, opacity: 0 }, reveal);
-  runningTween.to(inks, {
-    opacity: 1, yPercent: 0, duration: enterDuration, stagger, ease: 'power3.out'
-  }, reveal);
   requestFrame();
 }
 
@@ -305,12 +349,13 @@ function setReducedMotion(value, explicit = true) {
   if (explicit) motionOverride = Boolean(value);
   reducedMotion = Boolean(value);
   if (reducedMotion) {
+    stopTitleIntro();
     stopFrames();
     if (state.inflight) applyTransition(state.goTo(state.target, { instant: true }));
     else {
       runningTween?.kill();
       runningTween = null;
-      resetTitle();
+      syncTitleMotion();
     }
   }
   sceneCursor.setEnabled(ready && !modals.active && !reducedMotion && !frozenCapture);
@@ -430,13 +475,7 @@ const resizeObserver = new ResizeObserver(refreshResolution);
 resizeObserver.observe(app);
 document.addEventListener('visibilitychange', () => {
   audio.setVisible(!document.hidden);
-  if (document.hidden) {
-    stopFrames();
-    runningTween?.pause();
-  } else {
-    runningTween?.resume();
-    requestFrame();
-  }
+  syncPlayback();
 });
 
 addEventListener('pagehide', () => audio.setVisible(false));
@@ -455,6 +494,8 @@ function disposeRuntime() {
 
 function failRuntime(error, message = 'The 3D scene could not be loaded. You can retry or visit GitHub.') {
   loadGeneration++;
+  loadController?.abort();
+  loadController = undefined;
   clearTimeout(loadTimeout);
   ready = false;
   audio.setReady(false);
@@ -463,7 +504,9 @@ function failRuntime(error, message = 'The 3D scene could not be loaded. You can
   lastError = error instanceof Error ? error.message : String(error);
   runningTween?.kill();
   runningTween = null;
+  stopTitleIntro();
   state.seek(Math.round(state.story));
+  syncTitleMotion();
   disposeRuntime();
   loader.classList.add('has-error');
   loader.querySelector('.approved-loader-mark').hidden = true;
@@ -486,6 +529,11 @@ canvas.addEventListener('webglcontextlost', onContextLost);
 async function initialize(fromRetry = false) {
   if (initializing) return;
   const generation = ++loadGeneration;
+  loadController?.abort();
+  const controller = new AbortController();
+  loadController = controller;
+  stopTitleIntro();
+  startupMetrics = { moduleReadyMs: moduleStartedAt, initializeStartedMs: performance.now() };
   initializing = true;
   ready = false;
   audio.setReady(false);
@@ -526,8 +574,8 @@ async function initialize(fromRetry = false) {
     refreshResolution();
     const currentRenderer = renderer;
     const [path, sculpture] = await Promise.all([
-      loadApprovedCamera(),
-      createMorphSculpture(currentRenderer).then(resource => {
+      loadApprovedCamera({ signal: controller.signal }),
+      createMorphSculpture(currentRenderer, { signal: controller.signal }).then(resource => {
         if (generation !== loadGeneration) {
           resource.dispose();
           return null;
@@ -537,6 +585,7 @@ async function initialize(fromRetry = false) {
       })
     ]);
     if (generation !== loadGeneration) return;
+    startupMetrics.assetsReadyMs = performance.now();
     cameraPath = path;
     surfaces = sculpture;
     ambientField = createFreeAmbientParticles(renderer, cameraPath.data);
@@ -545,26 +594,21 @@ async function initialize(fromRetry = false) {
     refreshResolution();
     startedAt ??= performance.now();
     ready = true;
+    const firstFrameStartedAt = performance.now();
     renderScene();
     if (generation !== loadGeneration) return;
+    startupMetrics.firstFrameMs = performance.now() - firstFrameStartedAt;
     clearTimeout(loadTimeout);
+    loadController = undefined;
     initializing = false;
+    startupMetrics.readyMs = performance.now();
+    if (urlParams.has('debug')) console.info('LEEQ startup ' + JSON.stringify(startupMetrics));
     audio.setReady(true);
     modals.close({ force: true, restoreFocus: fromRetry });
-    renderTitle(Math.round(state.story));
-    if (Math.abs(state.story - Math.round(state.story)) > 0.02) {
-      app.classList.add('is-travelling');
-      resetTitle(false);
-    } else {
-      app.classList.remove('is-travelling');
-      resetTitle();
-      if (!reducedMotion && !frozenCapture) {
-        runningTween = gsap.timeline({ paused: document.hidden, onComplete() { runningTween = null; } });
-        runningTween.fromTo(title.querySelectorAll('.title-ink'),
-          { opacity: 0, yPercent: TITLE_MOTION.travel },
-          { opacity: 1, yPercent: 0, duration: 0.92, stagger: TITLE_MOTION.stagger, ease: 'power3.out' }, 0.12);
-      }
-    }
+    const betweenStops = Math.abs(state.story - Math.round(state.story)) > 0.02;
+    app.classList.toggle('is-travelling', betweenStops);
+    if (!betweenStops && !reducedMotion && !frozenCapture) startTitleIntro();
+    else syncTitleMotion();
     if (!reducedMotion && !frozenCapture) requestFrame();
   } catch (error) {
     if (generation === loadGeneration) failRuntime(error);
@@ -585,6 +629,7 @@ if (urlParams.has('debug') || captureStory !== null) window.__LEEQ_DEBUG = {
   get surfaceCount() { return surfaces?.count ?? 0; },
   get morphing() { return surfaces?.morphing ?? false; },
   get ready() { return ready; },
+  get startup() { return { ...startupMetrics }; },
   get moving() { return state.inflight; },
   get target() { return state.target; },
   get settled() { return state.settled; },
@@ -603,11 +648,11 @@ if (urlParams.has('debug') || captureStory !== null) window.__LEEQ_DEBUG = {
     if (!Number.isFinite(story)) return;
     runningTween?.kill();
     runningTween = null;
+    stopTitleIntro();
     state.seek(story);
-    renderTitle(Math.round(state.story));
     const betweenStops = Math.abs(state.story - Math.round(state.story)) > 0.02;
     app.classList.toggle('is-travelling', betweenStops);
-    resetTitle(!betweenStops);
+    syncTitleMotion();
     requestFrame();
   }
 };

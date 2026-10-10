@@ -9,10 +9,10 @@ const _targetRotation = new THREE.Quaternion();
 const _worldUp = new THREE.Vector3(0,1,0);
 const _basis = new THREE.Matrix4();
 
-export async function loadApprovedCamera() {
+export async function loadApprovedCamera({ signal } = {}) {
   const [cameraResponse, boundsResponse] = await Promise.all([
-    fetch('./scene/camera-path.json'),
-    fetch('./scene/model-bounds.json')
+    fetch('./scene/camera-path.json', { signal }),
+    fetch('./scene/model-bounds.json', { signal })
   ]);
   if (!cameraResponse.ok || !boundsResponse.ok) {
     throw Error('The approved camera path or model bounds could not be loaded');

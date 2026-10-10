@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
+import { decodeSurfaceData, encodeAlignedSurfaceData } from '../src/particles/surface-data.js';
 const points=fs.readFileSync('public/scene/surface-points.bin');
 assert.equal(points.subarray(0,4).toString('ascii'),'STG1');
 const groups=points.readUInt32LE(4), count=points.readUInt32LE(8), stride=points.readUInt32LE(12);
@@ -19,6 +20,28 @@ assert.ok(edgePoints>count*groups*0.15,'baked edges must survive serialization')
 assert.ok(!fs.existsSync('public/scene/approved-models.glb'),'No solid geometry should be shipped to the browser');
 assert.ok(fs.readFileSync('public/scene/ASSET_CREDITS.txt','utf8').includes('NASA'));
 console.log('PASS', groups, 'public model groups;', count, 'surface points per model;', (points.length/1048576).toFixed(2), 'MiB points');
+
+// The derived STG2 file is shipped separately; the STG1 source stays intact.
+const aligned = fs.readFileSync('public/scene/surface-points-aligned.bin');
+assert.equal(aligned.subarray(0, 4).toString('ascii'), 'STG2');
+assert.equal(aligned.length, points.length);
+assert.deepEqual(aligned, Buffer.from(encodeAlignedSurfaceData(points)),
+  'aligned records must be reproducible from the approved STG1 source');
+const legacyData = decodeSurfaceData(points), alignedData = decodeSurfaceData(aligned);
+assert.equal(alignedData.count, count);
+assert.deepEqual(alignedData.centers, legacyData.centers);
+assert.deepEqual(alignedData.spans, legacyData.spans);
+const gpuArrays = data => [
+  ...data.attrs.positions, ...data.attrs.shades, data.attrs.edges, data.attrs.misc,
+];
+const expectedArrays = gpuArrays(legacyData);
+gpuArrays(alignedData).forEach((array, index) => {
+  const expected = expectedArrays[index];
+  assert.deepEqual(Buffer.from(array.buffer, array.byteOffset, array.byteLength),
+    Buffer.from(expected.buffer, expected.byteOffset, expected.byteLength),
+    'aligned GPU attribute ' + index + ' must remain byte-identical');
+});
+console.log('PASS aligned STG2 records; all 10 GPU attributes and model bounds unchanged');
 
 // The original GLB is intentionally ignored and absent on GitHub Actions.
 // Always validate the shipped derivative data; verify source geometry too

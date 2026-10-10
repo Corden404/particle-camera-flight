@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { prepareSurfaceParts, sampleSurfaceParts, transformVertexNormals } from './point-sampling.mjs';
+import { writeAlignedSurfaceFile } from './align-stage-points.mjs';
 
 const COUNT = 36000;
 // Float32 xyz, signed normal bytes, material tone and one feature-edge byte.
@@ -107,4 +108,6 @@ for(let group=0;group<labels.length;group++){
 if(cursor!==out.length)throw Error('Unexpected position end');
 // Camera and original model-bounds are authoritative and deliberately read-only.
 writeFileSync('public/scene/surface-points.bin',out);
+const aligned = writeAlignedSurfaceFile();
+console.log('Wrote', aligned.bytes, 'bytes of prealigned STG2 points');
 console.log('Wrote',out.length,'bytes of world-space points in',((performance.now()-started)/1000).toFixed(3),'seconds');
