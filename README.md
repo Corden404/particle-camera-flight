@@ -2,6 +2,12 @@
 
 A personal homepage built with Vite, Three.js and GSAP around the approved Blender camera flight. The hero combines oversized outline/filled chapter titles with four sculptures rendered entirely as particles.
 
+## Preview
+
+![LEEQ homepage showing the SCULPTING IDEAS title and particle sculpture](docs/images/homepage.png)
+
+*Screenshot of the published homepage, captured at the first camera stop (1600 × 900).*
+
 ## Run locally
 
 ```powershell
