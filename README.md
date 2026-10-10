@@ -52,7 +52,15 @@ On fine-pointer devices, the scene uses a small warm dot and a thin following ri
 
 Sound starts **off** on a first visit. Use the header sound button or the menu control to enable a quiet synthesized ambient chord and short interaction tones. No external audio file is downloaded. The choice is saved under `leeq.audio.v1`; a remembered on preference still waits for a browser-permitted interaction before playback. Sound fades in and out, becomes quieter while a menu is open, and suspends when the page is hidden or the scene is unavailable. The fixed audio graph and click-voice limit are implemented in `src/audio/AmbientAudio.js`.
 
-Each title line enters and leaves through its own clipping mask. `TITLE_MOTION` in `src/approved-main.js` sets exit duration (0.28 s), entrance duration (0.78 s), line stagger (0.08 s) and travel (104%). The incoming heading appears near the end of the original five-second camera leg. Reduced motion shows the destination heading immediately. Edit the per-chapter proportions in `src/approved.css` and the continuous desktop/portrait sizing and placement in `src/layout/viewport.js`.
+Each title line enters and leaves through its own clipping mask. `src/interaction/TitleMotion.js` samples both lines from the continuous camera story position. A departing heading remains briefly while its sculpture releases, then rises out of its mask; the incoming heading rises into place as the next sculpture gathers. Reversing travel retraces the same title positions, including short reversals, and long menu flights reveal the intermediate chapter headings.
+
+| Five-second camera leg | Outgoing title fully hidden | Incoming title starts | Both lines fully visible |
+| --- | ---: | ---: | ---: |
+| Home → About | 1.25 s | 3.20 s | 4.20 s |
+| About → Work | 1.10 s | 3.10 s | 4.10 s |
+| Work → Contact | 1.40 s | 3.30 s | 4.30 s |
+
+`TITLE_PHASES` contains these per-leg phases, a 0.60-second exit, a 0.90-second entrance and a 0.10-second line stagger. `TITLE_MOTION` sets the initial page entrance (0.92 s per line, 0.08 s stagger, 0.12 s delay) and 104% mask travel. The initial entrance composes with navigation instead of resetting during early input. Reduced motion shows the destination heading immediately. Open dialogs and hidden pages pause both camera travel and the initial entrance. Edit the per-chapter proportions in `src/approved.css` and the continuous desktop/portrait sizing and placement in `src/layout/viewport.js`.
 
 ## Approved assets
 
@@ -62,7 +70,8 @@ Original ZIP, BLEND and video sources remain under ignored `模型/camera_flight
 | --- | --- |
 | `reference/generated-camera-source/approved-models.glb` | Ignored offline geometry for sampling; never rendered or downloaded by the webpage |
 | `public/scene/camera-path.json` | Unmodified 361 camera samples at 24 FPS across 15 seconds |
-| `public/scene/surface-points.bin` | Four poses of 36,000 sampled points: position, normal, regional tone, and 1-byte structural edge strength |
+| `public/scene/surface-points.bin` | Preserved STG1 source: four poses of 36,000 points with position, normal, regional tone and structural edge strength |
+| `public/scene/surface-points-aligned.bin` | Browser-loaded STG2 derivative: the same packed records, already aligned for morphing |
 | `public/scene/model-bounds.json` | Original model centers and bounds |
 | `public/scene/ASSET_CREDITS.txt` | Model attribution and usage notes |
 
@@ -83,6 +92,15 @@ npm run test:assets
 
 The baker allocates the exact point budget across connected surface components. Visible small parts have minimum quotas before area weighting, and roughly 32% of each populated component's dots trace real boundary or sharp-crease edges. These tagged points are stored in a 17-byte record and independently rendered as smaller, less mobile, brighter edge grains, without adding wireframe geometry. Seeded stratified/Halton sampling, interpolated transformed normals and coherent component/material tones preserve repeatability. Rebaking points does not rewrite the approved camera or bounds.
 
+The baker also produces the aligned STG2 derivative. To regenerate only that derivative from the checked-in raw data, without the private GLB:
+
+```powershell
+node scripts/align-stage-points.mjs
+npm run test:assets
+```
+
+STG2 retains the original 17-byte records and 2,448,016-byte file size. Morton ordering and the seeded permutation run offline; the browser directly expands the aligned records. All ten GPU attribute arrays, random values, model bounds and High/Eco subsets remain byte-identical to the approved STG1 runtime. Both files are retained in the build, but normal scene startup requests only STG2. `src/particles/surface-data.js` also retains STG1 decoding for compatibility.
+
 ## Composition and artistic controls
 
 The runtime measures the app rectangle and derives one continuous portrait weight from its aspect ratio. Titles, camera framing and sculpture scale share that weight. There is no abrupt 759/760-pixel camera switch. Wide viewports use the original camera route as their base, with damped pointer parallax added while motion is enabled; portrait dock adjustments fade away during travel.
@@ -99,14 +117,17 @@ The public homepage now uses the approved, fixed appearance in `VISUAL_DEFAULTS`
 
 | What to adjust | Active location |
 | --- | --- |
-| Chapter title text and `TITLE_MOTION` timing | `src/approved-main.js` |
+| Chapter title text | `src/approved-main.js` |
+| Title entrance, exit and camera phase timing | `src/interaction/TitleMotion.js` |
 | Scene cursor behavior and appearance | `src/ui/SceneCursor.js`, `src/ui/scene-cursor.css` |
 | Ambient chord, click tones, gain and fade durations | `src/audio/AmbientAudio.js` |
 | Title sizing, position and continuous layout limits | `src/layout/viewport.js` |
-| Fonts, line proportions, spacing, grain and panel styling | `src/approved.css` |
+| Line proportions, spacing, grain and panel styling | `src/approved.css` |
+| Local font faces and original font files | `src/fonts.css`, `public/fonts/` |
 | Dock framing and camera interpolation | `src/camera/ApprovedCamera.js` |
 | Per-leg envelopes, palette and display scale | `src/particles/art-direction.js` |
-| Sculpture uniforms, pose alignment and draw range | `src/particles/MorphSculpture.js` |
+| Sculpture uniforms and draw range | `src/particles/MorphSculpture.js` |
+| Packed point decoding and offline pose alignment | `src/particles/surface-data.js`, `scripts/align-stage-points.mjs` |
 | Sculpture drift, rocking, moving color regions, particle size and transit geometry | `src/particles/sculpture-morph.vert.glsl` |
 | Particle core, halo and final output color | `src/particles/sculpture.frag.glsl` |
 | Colored ambient field and animated microdot grid | `src/particles/ApprovedParticleFields.js` |
@@ -120,7 +141,9 @@ Modal menus and dialogs contain keyboard focus, mark the background inert, and r
 
 System reduced-motion changes apply live until the visitor chooses an explicit override. Reduced-motion mode moves immediately to the destination and renders on demand. Frozen captures, hidden documents and open modal panels stop continuous scene rendering. Low-memory or coarse-pointer devices start in Eco; the menu exposes both display preferences.
 
-A failed asset request, WebGL startup failure, a 20-second load timeout or a lost WebGL context opens a visible recovery panel with Retry and the real GitHub link. Retry after context loss replaces the failed canvas before initializing a new renderer. Obsolete asynchronous loads cannot reactivate a failed scene; late particle resources are disposed. Their underlying requests may still finish because the current factories do not accept an AbortSignal.
+The HTML preloads both primary Latin font files and all three scene resources, so their downloads can start while JavaScript is loading. Oswald v57 and DM Sans v17 are served locally using the same WOFF2 files, weight ranges and Unicode subsets as the previous Google Fonts response. `public/fonts/README.txt` records their source URLs; the original OFL licenses are included. No external font stylesheet or font server is required.
+
+A failed asset request, WebGL startup failure, a 20-second load timeout or a lost WebGL context opens a visible recovery panel with Retry and the real GitHub link. Retry after context loss replaces the failed canvas before initializing a new renderer. Camera, bounds and particle fetches share an AbortSignal, and failure or replacement cancels their consumers. A preload may already be complete or remain browser-managed. Generation checks prevent obsolete asynchronous loads from reactivating a failed scene; late particle resources are disposed.
 
 If the application module fails to load, the static HTML retains the identity, GitHub destination and reload action.
 
@@ -134,7 +157,7 @@ npm test
 npm run build
 ```
 
-The unit suites cover bounded/reversible navigation and wheel intent, native-key exclusions, viewport continuity and original camera poses, deterministic transit envelopes, exact sampling budgets, normalized interpolated normals, and audio consent, fades, lifecycle and asynchronous state races. The asset and flight checks validate the deployable data contract and authored camera.
+The unit suites cover bounded/reversible navigation and wheel intent, title phase continuity and intermediate chapters, native-key exclusions, viewport continuity and original camera poses, deterministic transit envelopes, exact sampling budgets, normalized interpolated normals, cancellable camera loading, and audio consent, fades, lifecycle and asynchronous state races. Surface-data tests compare all GPU attributes with both a frozen pre-optimization decoder and fixed byte hashes. The asset and flight checks validate reproducible aligned data and the authored camera.
 
 For reproducible visual inspection:
 
@@ -143,19 +166,23 @@ For reproducible visual inspection:
 - `/?capture=0.5&captureTime=4` freezes the midpoint of the first leg.
 - Use `capture=1`, `2` or `3` for the other docks.
 - With a capture query and no explicit time, the frozen time is zero.
-- `window.__LEEQ_DEBUG` exposes readiness, story/target, camera, point counts, layout, renderer info, frame count, live `interaction`, `sound` state, `goTo()` and `seek()`.
+- `window.__LEEQ_DEBUG` exposes readiness, story/target, camera, point counts, layout, renderer info, frame count, live `interaction`, `sound` state, startup measurements, `goTo()` and `seek()`.
+- On `?debug=1`, startup also writes one `LEEQ startup` console record. `moduleReadyMs`, `initializeStartedMs`, `assetsReadyMs` and `readyMs` are page-relative `performance.now()` timestamps; `firstFrameMs` is the synchronous first-render duration. These diagnostics are disabled on ordinary visits.
 - Use a live `/?debug=1` page without capture parameters to assess idle movement and mouse response over several seconds. Frozen frames cannot verify these effects.
 
 Inspect actual desktop and phone renders when changing light, size or composition. A passing build does not establish visual quality or performance on every device. Local animation callback timings are not field Core Web Vitals or GPU timings.
 
 ## Project map and source preservation
 
-- `index.html`: metadata, one font stylesheet request and static fallback.
+- `index.html`: metadata, font/scene preload hints and static fallback.
+- `src/fonts.css`, `public/fonts/`: local, licensed Oswald and DM Sans files.
 - `src/approved-main.js`: current application entry, render lifecycle and input integration.
 - `src/interaction/Navigation.js`: pure chapter and gesture state.
+- `src/interaction/TitleMotion.js`: title styles sampled from camera story position.
 - `src/ui/overlays.js`: modal lifecycle and focus handling.
 - `scripts/prepare-camera-scene.py`: source archives to ignored GLB and derived metadata.
-- `scripts/bake-stage-points.mjs`: offline GLB to the public point binary.
+- `scripts/bake-stage-points.mjs`: offline GLB sampling and both public point binaries.
+- `scripts/align-stage-points.mjs`: standalone STG1-to-STG2 derivation.
 - `tests/`: regression suites using the Node built-in test runner.
 - `vite.config.js`: relative build paths and separate stable Three/GSAP vendor chunks.
 
