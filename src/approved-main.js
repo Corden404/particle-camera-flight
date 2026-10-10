@@ -7,7 +7,7 @@ import { getViewportLayout } from './layout/viewport.js';
 import { Navigation, WheelIntent, getKeyIntent, isInteractiveTarget } from './interaction/Navigation.js';
 import { createModalController } from './ui/overlays.js';
 import { PointerField } from './interaction/PointerField.js';
-import { createVisualControls } from './ui/VisualControls.js';
+import { VISUAL_DEFAULTS } from './controls/visual-settings.js';
 import { createSceneCursor } from './ui/SceneCursor.js';
 import { createAmbientAudio } from './audio/AmbientAudio.js';
 import './approved.css';
@@ -29,20 +29,9 @@ app.innerHTML = [
   "<header class='approved-header'>",
   "<button type='button' class='approved-sound-button' id='sound-button' data-sound-toggle lang='zh-CN' aria-label='开启声音' aria-pressed='false' title='开启声音'>",
   "<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.25' stroke-linecap='round' aria-hidden='true'><path d='M5 10v4m4-8v12m4-14v16m4-13v10m4-6v2'/></svg><span class='approved-sound-label' aria-hidden='true'>OFF</span></button>",
-  "<button type='button' class='approved-visual-toggle' id='visual-button' lang='zh-CN' aria-label='打开视觉调节' aria-controls='visual-controls' aria-expanded='false' title='视觉调节'>",
-  "<svg viewBox='0 0 24 24' aria-hidden='true' fill='none' stroke='currentColor' stroke-width='1.25' stroke-linecap='round'><path d='M4 7h16M4 12h16M4 17h16'/><circle cx='9' cy='7' r='2.1' fill='#080b0d'/><circle cx='16' cy='12' r='2.1' fill='#080b0d'/><circle cx='11' cy='17' r='2.1' fill='#080b0d'/></svg></button>",
   "<button type='button' class='approved-menu-button' id='menu-button' aria-label='Open navigation' aria-controls='approved-overlay-menu' aria-haspopup='dialog' aria-expanded='false'>",
   "<span></span><span></span></button></header>",
   "<main class='approved-chapter'><h1 class='approved-title' id='approved-title'></h1></main>",
-  "<aside class='visual-controls' id='visual-controls' lang='zh-CN' role='region' aria-labelledby='visual-controls-title' hidden inert>",
-  "<div class='visual-controls-head'><div><p class='visual-controls-eyebrow'>LIVE TUNING / 01</p><h2 id='visual-controls-title'>视觉调节</h2></div>",
-  "<button type='button' class='visual-controls-close' data-visual-close aria-label='关闭视觉调节'>" + closeIcon + "</button></div>",
-  "<p class='visual-controls-intro'>拖动滑块，立即查看效果。100% 为当前设计默认值。</p>",
-  "<div class='visual-controls-body' data-visual-groups></div>",
-  "<div class='visual-controls-footer'><div class='visual-controls-actions'>",
-  "<button type='button' data-visual-reset>恢复默认</button>",
-  "<button type='button' data-visual-copy>复制参数</button></div>",
-  "<p class='visual-controls-status' data-visual-status role='status' aria-live='polite'>调整会自动保存在本机</p></div></aside>",
   "<div class='approved-overlay-menu' id='approved-overlay-menu' role='dialog' aria-modal='true' aria-labelledby='approved-menu-title' aria-hidden='true' tabindex='-1' data-modal hidden inert>",
   "<h2 class='approved-sr-only' id='approved-menu-title'>Choose a chapter</h2>",
   "<button type='button' id='close-menu' class='approved-menu-close' aria-label='Close navigation' data-close-panel data-initial-focus>" + closeIcon + "</button>",
@@ -77,8 +66,6 @@ const menu = document.getElementById('approved-overlay-menu');
 const announcement = document.getElementById('approved-announcement');
 const motionButton = document.getElementById('motion-toggle');
 const qualityButton = document.getElementById('quality-toggle');
-const visualPanel = document.getElementById('visual-controls');
-const visualButton = document.getElementById('visual-button');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x030507);
@@ -110,15 +97,8 @@ let frameId = 0;
 let frameCount = 0;
 let startedAt;
 let lastError = null;
-const visualControls = createVisualControls({
-  panel: visualPanel,
-  trigger: visualButton,
-  onChange: settings => {
-    ambientField?.setDensity(settings.ambientDensity);
-    requestFrame();
-  }
-});
-const tuning = visualControls.settings;
+// The published site uses the approved preset, not per-visitor saved slider values.
+const tuning = VISUAL_DEFAULTS;
 const sceneCursor = createSceneCursor({ root: app, disabled: true });
 const audio = createAmbientAudio({ disabled: frozenCapture, onChange: syncSoundControls });
 audio.setVisible(!document.hidden);
@@ -131,10 +111,8 @@ const modals = createModalController({
     menuButton.setAttribute('aria-expanded', String(dialog === menu));
     sceneCursor.setEnabled(ready && !dialog && !reducedMotion && !frozenCapture);
     audio.setDucked(Boolean(dialog));
-    if (dialog) {
-      visualControls.close({ restoreFocus: false });
-      stopFrames();
-    } else requestFrame();
+    if (dialog) stopFrames();
+    else requestFrame();
   }
 });
 
@@ -349,7 +327,6 @@ function toggleQuality() {
 
 menuButton.addEventListener('click', () => {
   if (ready) {
-    visualControls.close({ restoreFocus: false });
     modals.open(menu, { trigger: menuButton });
   }
 });
@@ -371,7 +348,7 @@ menuSoundButton.addEventListener('click', toggleSound);
 // A click follows a completed tap, so dragging or swiping never triggers sound.
 app.addEventListener('click', async event => {
   if (!event.isTrusted || !ready || frozenCapture || !audio.state.enabled ||
-    event.target.closest('[data-sound-toggle]') || visualPanel.contains(event.target)) return;
+    event.target.closest('[data-sound-toggle]')) return;
   if (audio.state.locked) await audio.unlock();
   audio.playClick(isInteractiveTarget(event.target) ? 'ui' : 'scene');
 });
@@ -383,16 +360,6 @@ motionPreference.addEventListener('change', event => {
 
 addEventListener('keydown', event => {
   if (!ready || modals.active) return;
-  if (visualControls.isOpen) {
-    if (event.key === 'Escape') { event.preventDefault(); visualControls.close(); }
-    return; // Slider arrow keys never navigate the story.
-  }
-  if (event.key?.toLowerCase() === 'v' && !event.ctrlKey && !event.metaKey &&
-    !event.altKey && !event.shiftKey && !event.repeat && !isInteractiveTarget(event.target)) {
-    event.preventDefault();
-    visualControls.toggle();
-    return;
-  }
   const intent = getKeyIntent(event);
   if (!intent) return;
   event.preventDefault();
@@ -402,14 +369,14 @@ addEventListener('keydown', event => {
   else if (intent === 'motion') setReducedMotion(!reducedMotion);
 });
 addEventListener('wheel', event => {
-  if (!ready || modals.active || visualPanel.contains(event.target)) return;
+  if (!ready || modals.active) return;
   const direction = wheelIntent.push(event, performance.now(), layout.height);
   if (direction) step(direction);
 }, { passive: true });
 
 // Listen above the canvas as the title and navigation occupy part of the scene.
 app.addEventListener('pointermove', event => {
-  if (!ready || modals.active || reducedMotion || visualPanel.contains(event.target)) return;
+  if (!ready || modals.active || reducedMotion) return;
   const rect = app.getBoundingClientRect();
   pointerField.move(
     (event.clientX - rect.left) / rect.width * 2 - 1,
@@ -422,7 +389,7 @@ app.addEventListener('pointerleave', () => pointerField.leave(), { passive: true
 // Mouse left button fires exactly one expanding ripple without requiring a drag.
 app.addEventListener('pointerdown', event => {
   if (!ready || reducedMotion || modals.active || event.button !== 0 ||
-    isInteractiveTarget(event.target) || visualPanel.contains(event.target)) return;
+    isInteractiveTarget(event.target)) return;
   const rect = app.getBoundingClientRect();
   pointerField.click(
     (event.clientX - rect.left) / rect.width * 2 - 1,
@@ -436,7 +403,7 @@ addEventListener('blur', () => pointerField.leave());
 let touchStart = null;
 app.addEventListener('touchstart', event => {
   if (!ready || modals.active || event.touches.length !== 1 ||
-    isInteractiveTarget(event.target) || visualPanel.contains(event.target)) {
+    isInteractiveTarget(event.target)) {
     touchStart = null;
     return;
   }
