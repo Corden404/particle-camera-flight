@@ -1,4 +1,4 @@
-// Visual tuning values are multipliers: 1.00 reproduces the approved look.
+// Visual tuning values are multipliers; defaults capture the approved preset.
 // This module is intentionally DOM-free so the schema and persistence are testable.
 export const VISUAL_STORAGE_KEY = 'leeq.visual-controls.v1';
 
@@ -38,9 +38,21 @@ export const VISUAL_GROUPS = [
   }
 ];
 
-export const VISUAL_DEFAULTS = Object.freeze(Object.fromEntries(
-  VISUAL_GROUPS.flatMap(group => group.controls.map(control => [control.key, 1]))
-));
+export const VISUAL_DEFAULTS = Object.freeze({
+  modelSaturation: 1,
+  modelBrightness: 1.25,
+  modelSize: 0.6,
+  modelMotion: 1,
+  modelTwinkle: 1,
+  ambientSaturation: 1,
+  ambientBrightness: 1.5,
+  ambientDensity: 1,
+  gridBrightness: 2,
+  pointerStrength: 0.5,
+  clickStrength: 1,
+  cameraSway: 0.6,
+  scatter: 2
+});
 
 export function normalizeVisualSettings(raw) {
   const input = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
@@ -48,7 +60,8 @@ export function normalizeVisualSettings(raw) {
   for (const group of VISUAL_GROUPS) {
     for (const control of group.controls) {
       const value = input[control.key];
-      const valid = typeof value === 'number' && Number.isFinite(value) ? value : 1;
+      const valid = typeof value === 'number' && Number.isFinite(value) ?
+        value : VISUAL_DEFAULTS[control.key];
       const clamped = Math.max(control.min, Math.min(control.max, valid));
       result[control.key] = Math.round(clamped * 20) / 20;
     }

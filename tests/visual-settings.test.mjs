@@ -10,8 +10,9 @@ test('all displayed live controls use unique, bounded multiplier values', () => 
   assert.equal(controls.length, 13);
   assert.equal(new Set(controls.map(item => item.key)).size, controls.length);
   for (const control of controls) {
-    assert.equal(VISUAL_DEFAULTS[control.key], 1);
-    assert.ok(control.min <= 1 && control.max >= 1);
+    const defaultValue = VISUAL_DEFAULTS[control.key];
+    assert.ok(Number.isFinite(defaultValue));
+    assert.ok(control.min <= defaultValue && control.max >= defaultValue);
     assert.ok(control.max > control.min);
   }
 });
@@ -30,8 +31,8 @@ test('saved values clamp to safe shader ranges and quantize to slider precision'
   assert.equal(state.modelBrightness, 1.8);
   assert.equal(state.modelTwinkle, 1.25);
   assert.equal(state.ambientDensity, 0.2);
-  assert.equal(state.pointerStrength, 1);
-  assert.equal(state.scatter, 1);
+  assert.equal(state.pointerStrength, VISUAL_DEFAULTS.pointerStrength);
+  assert.equal(state.scatter, VISUAL_DEFAULTS.scatter);
   assert.ok(!Object.hasOwn(state, 'unexpectedKey'));
 });
 
