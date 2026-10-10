@@ -316,6 +316,89 @@ test('rapid clicks are limited and finished sound nodes are released', async () 
   assert.ok(contexts[0].nodes.every(node => node.disconnected));
 });
 
+test('scene clicks play one soft piano key with staggered harmonics and a natural tail', async () => {
+  const { audio, contexts, timer } = harness();
+  audio.setReady(true);
+  await audio.setEnabled(true);
+  const context = contexts[0];
+  const existing = context.nodes.length;
+
+  assert.equal(audio.playClick('scene'), true);
+  const clickNodes = context.nodes.slice(existing);
+  const tones = clickNodes.filter(node => node.source);
+  const gains = clickNodes.filter(node => !node.source);
+  assert.equal(tones.length, 4, 'one struck key uses four harmonics, not a chord');
+  assert.equal(gains.length, 4);
+  assert.equal(tones[0].frequency.value, 392);
+  assert.ok(Math.abs(tones[1].frequency.value / 392 - 2.003) < 1e-8);
+  assert.ok(Math.abs(tones[2].frequency.value / 392 - 3.012) < 1e-8);
+  assert.ok(tones.every((tone, index) => index === 0 || tone.frequency.value > tones[index - 1].frequency.value));
+
+  const fundamental = gains[0].gain.events;
+  assert.deepEqual(fundamental.map(event => event.kind), ['set', 'ramp', 'exponential', 'exponential']);
+  assert.ok(fundamental[1].at <= 0.008, 'the hammer strike should have a fast attack');
+  assert.equal(fundamental[1].value, 0.033);
+  assert.ok(fundamental[2].value < fundamental[1].value);
+  assert.equal(fundamental.at(-1).at, 0.68);
+  assert.equal(fundamental.at(-1).value, 0.0001);
+  assert.ok(gains.slice(1).every(gain => gain.gain.events.at(-1).at < fundamental.at(-1).at),
+    'higher harmonics must decay before the fundamental');
+
+  timer.advance(1000);
+  assert.ok(clickNodes.every(node => node.disconnected), 'every temporary piano node is released');
+  audio.dispose();
+});
+
+test('control keys are shorter and quieter, and successive clicks change notes gently', async () => {
+  const { audio, contexts, timer } = harness();
+  audio.setReady(true);
+  await audio.setEnabled(true);
+  const context = contexts[0];
+  const playAndMeasure = kind => {
+    const start = context.nodes.length;
+    assert.equal(audio.playClick(kind), true);
+    const nodes = context.nodes.slice(start);
+    const tones = nodes.filter(node => node.source);
+    const gains = nodes.filter(node => !node.source);
+    return { frequency: tones[0].frequency.value, peak: gains[0].gain.events[1].value,
+      duration: gains[0].gain.events.at(-1).at - context.currentTime };
+  };
+  const scene1 = playAndMeasure('scene');
+  timer.advance(1000);
+  const ui1 = playAndMeasure('ui');
+  timer.advance(1000);
+  const scene2 = playAndMeasure('scene');
+  timer.advance(1000);
+  const ui2 = playAndMeasure('ui');
+
+  assert.deepEqual([scene1.frequency, scene2.frequency], [392, 440]);
+  assert.deepEqual([ui1.frequency, ui2.frequency], [523.25, 587.33]);
+  assert.ok(ui1.peak < scene1.peak, 'UI feedback stays in the background');
+  assert.ok(ui1.duration < scene1.duration, 'UI keys release faster');
+  audio.dispose();
+});
+
+test('silencing the page disconnects active piano keys without extra permanent voices', async () => {
+  const { audio, contexts, timer } = harness();
+  audio.setReady(true);
+  await audio.setEnabled(true);
+  const context = contexts[0];
+  const idleVoices = context.liveSources;
+  const baseCount = context.nodes.length;
+  assert.equal(audio.playClick('scene'), true);
+  timer.advance(90);
+  assert.equal(audio.playClick('ui'), true);
+  assert.ok(context.liveSources > idleVoices);
+  const temporary = context.nodes.slice(baseCount);
+  audio.setVisible(false);
+  timer.advance(450);
+  await flush();
+  assert.equal(context.state, 'suspended');
+  assert.equal(context.liveSources, idleVoices);
+  assert.ok(temporary.every(node => node.disconnected));
+  audio.dispose();
+});
+
 test('menu ducking keeps sound active without allocating more sources', async () => {
   const { audio, contexts } = harness();
   audio.setReady(true);

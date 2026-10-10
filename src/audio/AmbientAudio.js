@@ -1,5 +1,17 @@
 const STORAGE_KEY = 'leeq.audio.v1';
 
+// Gentle, consonant key changes. No sample files, random pitches or autoplay.
+const PIANO_NOTES = Object.freeze({
+  scene: Object.freeze([392.0, 440.0, 523.25, 440.0]),
+  ui: Object.freeze([523.25, 587.33, 523.25])
+});
+const PIANO_PARTIALS = Object.freeze([
+  { ratio: 1, level: 1, tail: 1 },
+  { ratio: 2.003, level: 0.36, tail: 0.73 },
+  { ratio: 3.012, level: 0.14, tail: 0.46 },
+  { ratio: 4.027, level: 0.06, tail: 0.27 }
+]);
+
 function browserStorage() {
   try { return globalThis.localStorage; } catch { return null; }
 }
@@ -31,6 +43,7 @@ export function createAmbientAudio({
   let ready = false, ducked = false, disposed = false, error;
   let context, master, bed, effects, suspendTimer, pendingResume, pendingSuspend;
   let pauseRevision = 0, lastClickAt = -Infinity, lastNotification;
+  const noteSteps = { scene: 0, ui: 0 };
   const nodes = new Set();
   const sources = new Set();
   const clicks = new Set();
@@ -117,7 +130,7 @@ export function createAmbientAudio({
       bed.connect(master);
       effects = own(context.createBiquadFilter());
       effects.type = 'lowpass';
-      effects.frequency.value = 1250;
+      effects.frequency.value = 3100; // Preserve the soft hammer overtones.
       effects.Q.value = 0.35;
       effects.connect(master);
 
@@ -287,34 +300,43 @@ export function createAmbientAudio({
       if (!wantsPlayback() || locked || !playing || context?.state !== 'running') return false;
       const now = context.currentTime;
       if (now - lastClickAt < 0.085 || clicks.size >= 4) return false;
-      lastClickAt = now;
-      const ui = kind === 'ui';
-      const duration = ui ? 0.14 : 0.32;
-      const click = { nodes: [], sources: [] };
+      const key = kind === 'ui' ? 'ui' : 'scene';
+      const notes = PIANO_NOTES[key];
+      const frequency = notes[noteSteps[key] % notes.length];
+      const duration = key === 'ui' ? 0.43 : 0.68;
+      const volume = key === 'ui' ? 0.024 : 0.033;
+      const click = { nodes: [], sources: [], finished: 0 };
       clicks.add(click);
-      const frequencies = ui ? [523.25] : [392, 588];
       try {
-        frequencies.forEach((frequency, index) => {
+        // One struck piano-like key, not a simultaneous two-note notification.
+        // Slightly stretched overtones emulate stiff strings; each upper
+        // partial dies sooner than the fundamental for a warm natural decay.
+        PIANO_PARTIALS.forEach(({ ratio, level, tail }, index) => {
           const tone = context.createOscillator();
           const gain = context.createGain();
           click.nodes.push(tone, gain);
           click.sources.push(tone);
           tone.type = 'sine';
-          tone.frequency.value = frequency;
-          const peak = ui ? 0.020 : index === 0 ? 0.038 : 0.013;
+          tone.frequency.value = frequency * ratio;
+          const peak = volume * level;
+          const attack = index === 0 ? 0.006 : 0.003;
+          const end = duration * tail;
           gain.gain.setValueAtTime(0, now);
-          gain.gain.linearRampToValueAtTime(peak, now + 0.012);
-          gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+          gain.gain.linearRampToValueAtTime(peak, now + attack);
+          gain.gain.exponentialRampToValueAtTime(peak * 0.5, now + 0.062);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + end);
           tone.connect(gain);
           gain.connect(effects);
           tone.onended = () => {
             tone.onended = null;
-            click.finished = (click.finished || 0) + 1;
-            if (click.finished === frequencies.length) releaseClick(click);
+            click.finished++;
+            if (click.finished === PIANO_PARTIALS.length) releaseClick(click);
           };
           tone.start(now);
-          tone.stop(now + duration + 0.02);
+          tone.stop(now + end + 0.02);
         });
+        noteSteps[key]++;
+        lastClickAt = now;
         return true;
       } catch {
         releaseClick(click);
