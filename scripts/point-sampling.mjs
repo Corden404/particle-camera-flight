@@ -208,17 +208,18 @@ export function sampleSurfaceParts(parts,count,seed=39143721) {
   const samples=[];
   for(const {part,count:amount} of allocation) {
     const shiftU=random(),shiftV=random(),offset=1+(hash(part.region)^seed)>>>0;
-    const edgeAmount=part.featureWeight>0?Math.floor(amount*0.24):0;
+    const edgeAmount=part.featureWeight>0 && amount>0 ? Math.max(1,Math.floor(amount*0.32)) : 0;
     const interiorAmount=amount-edgeAmount;
     for(let k=0;k<amount;k++) {
-      // Near one quarter of dots follow true boundaries/creases, keeping the
-      // silhouette intact. The remainder retain stratified surface coverage.
-      let triangle,barycentric;
+      // About a third of points trace true boundaries/creases; the remainder
+      // retain stratified coverage. Tiny structural pieces still get edge dots.
+      let triangle,barycentric,edgeStrength=0;
       if(k<edgeAmount) {
         const edge=part.featureEdges[findTriangle(part.featureCumulative,
           (k+0.5)*part.featureWeight/edgeAmount)];
         const t=(radicalInverse((offset%1048576)+k+1,2)+shiftU)%1;
         triangle=edge.triangle;
+        edgeStrength=edge.faces===1?0.82:1;
         barycentric=[0,0,0];
         barycentric[edge.edgeSlots[0]]=1-t;
         barycentric[edge.edgeSlots[1]]=t;
@@ -239,7 +240,8 @@ export function sampleSurfaceParts(parts,count,seed=39143721) {
         }
       }
       const unitNormal=normalize(normal,triangle.normal);
-      samples.push({position,normal:unitNormal,barycentric,tone:regionalTone(part,position,unitNormal)});
+      samples.push({position,normal:unitNormal,barycentric,
+        tone:regionalTone(part,position,unitNormal),edge:edgeStrength});
     }
   }
   // Mix parts reproducibly so runtime morphs do not travel as component blocks.

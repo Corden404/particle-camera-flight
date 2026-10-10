@@ -140,18 +140,33 @@ test('true seams and creases are explicitly sampled but triangulation diagonals 
   const crease=samples.filter(s=>s.position[0]===0 && s.position[2]===0);
   assert.ok(crease.length>=20,'the real 90-degree crease receives stable contour points');
 });
+test('edge flags distinguish crease/border points from interior with stable coverage', () => {
+  const points=api.sampleSurfaceParts(api.prepareSurfaceParts([triangle()]),1000,28);
+  assert.equal(points.filter(p=>p.edge===0.82).length,320,'boundary samples use 32% budget');
+  assert.equal(points.filter(p=>p.edge===0).length,680,'interior samples remain well represented');
+  const folded={
+    points:Float32Array.from([0,0,0,1,0,0,0,1,0,0,0,0,0,1,0,0,0,1]),
+    ids:Uint32Array.from([0,1,2,3,4,5]),
+    region:'crease fold'
+  };
+  const foldedSamples=api.sampleSurfaceParts(api.prepareSurfaceParts([folded]),1000,29);
+  assert.ok(foldedSamples.some(p=>p.edge===1),'sharp creases retain a distinct flag');
+  assert.ok(foldedSamples.some(p=>p.edge===0.82),'true open boundaries retain a distinct flag');
+  assert.ok(foldedSamples.some(p=>p.edge===0),'face interiors remain visible');
+});
 test('shipped points preserve all four source bounds and valid quantized normals', () => {
   const binary=readFileSync(new URL('../public/scene/surface-points.bin',import.meta.url));
   const bounds=JSON.parse(readFileSync(new URL('../public/scene/model-bounds.json',import.meta.url),'utf8'));
   assert.equal(binary.toString('ascii',0,4),'STG1');
   assert.equal(binary.readUInt32LE(4),4);
   assert.equal(binary.readUInt32LE(8),36000);
-  assert.equal(binary.readUInt32LE(12),16);
-  assert.equal(binary.length,16+4*36000*16);
+  assert.equal(binary.readUInt32LE(12),17);
+  assert.equal(binary.length,16+4*36000*17);
   Object.values(bounds).forEach((source,group)=>{
-    const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity],tones=new Set();
+    const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity],tones=new Set(),edges=new Set();
+    let edgeCount=0;
     for(let index=0;index<36000;index++) {
-      const offset=16+(group*36000+index)*16;
+      const offset=16+(group*36000+index)*17;
       for(let axis=0;axis<3;axis++) {
         const value=binary.readFloatLE(offset+axis*4);
         assert.ok(Number.isFinite(value));
@@ -162,6 +177,9 @@ test('shipped points preserve all four source bounds and valid quantized normals
       assert.ok(length>.99 && length<1.01,'quantized normal stays normalized');
       const tone=binary[offset+15]; tones.add(tone);
       assert.ok(tone>=32 && tone<=220);
+      const edge=binary[offset+16]; edges.add(edge);
+      assert.ok([0,209,255].includes(edge),'valid edge intensity');
+      if(edge>0)edgeCount++;
     }
     for(let axis=0;axis<3;axis++) {
       assert.ok(Math.abs(min[axis]-source.min[axis])<source.maxDimension*.005,'sample reaches the source silhouette minimum');
@@ -169,6 +187,8 @@ test('shipped points preserve all four source bounds and valid quantized normals
       assert.ok(Math.abs((min[axis]+max[axis])*.5-source.center[axis])<source.maxDimension*.001,'model center is preserved');
     }
     assert.ok(tones.size>10,'each model has regional tone variance');
+    assert.ok(edgeCount>36000*0.15&&edgeCount<36000*0.4,'edge density remains useful but bounded');
+    assert.ok(edges.has(0)&&[209,255].some(level=>edges.has(level)),'edge metadata survives baking');
   });
 });
 

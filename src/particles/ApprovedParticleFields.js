@@ -15,14 +15,14 @@ function decodeSurfacePoints(buffer) {
  const view=new DataView(buffer);
  if(String.fromCharCode(...new Uint8Array(buffer,0,4))!=='STG1')throw Error('Unsupported point data');
  const groups=view.getUint32(4,true),count=view.getUint32(8,true),stride=view.getUint32(12,true);
- if(groups!==4||stride!==16||count<2000||count>60000||view.byteLength!==16+groups*count*stride)
+  if(groups!==4||stride!==17||count<2000||count>60000||view.byteLength!==16+groups*count*stride)
    throw Error('Inconsistent surface particle data');
  const result=[];
  for(let g=0;g<groups;g++){
   const pos=new Float32Array(count*3),norm=new Float32Array(count*3),tone=new Float32Array(count),random=new Float32Array(count*2);
   const rng=seeded();
   for(let i=0;i<count;i++){
-   const offset=16+(g*count+i)*16;
+   const offset=16+(g*count+i)*stride;
    for(let j=0;j<3;j++){
     pos[i*3+j]=view.getFloat32(offset+j*4,true);
     norm[i*3+j]=view.getInt8(offset+12+j)/127;

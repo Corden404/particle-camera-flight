@@ -26,6 +26,7 @@ attribute vec4 aShade0;
 attribute vec4 aShade1;
 attribute vec4 aShade2;
 attribute vec4 aShade3;
+attribute vec4 aEdges;
 attribute vec2 aRandom;
 
 varying float vTone;
@@ -36,6 +37,7 @@ varying float vGlint;
 varying float vSilver;
 varying float vResponse;
 varying float vTwinkle;
+varying float vEdge;
 
 #include <particle_interaction>
 
@@ -80,16 +82,20 @@ void main() {
   vec3 end = aPose1;
   vec4 shadeStart = aShade0;
   vec4 shadeEnd = aShade1;
+  float edgeStart = aEdges.x;
+  float edgeEnd = aEdges.y;
   vec3 fromCenter = uCenter0;
   vec3 toCenter = uCenter1;
   if (leg >= 1.0) {
     start = aPose1; end = aPose2;
     shadeStart = aShade1; shadeEnd = aShade2;
+    edgeStart = aEdges.y; edgeEnd = aEdges.z;
     fromCenter = uCenter1; toCenter = uCenter2;
   }
   if (leg >= 2.0) {
     start = aPose2; end = aPose3;
     shadeStart = aShade2; shadeEnd = aShade3;
+    edgeStart = aEdges.z; edgeEnd = aEdges.w;
     fromCenter = uCenter2; toCenter = uCenter3;
   }
 
@@ -99,6 +105,7 @@ void main() {
     abs(shadeEnd.y) * 0.26 + aRandom.y * 0.18, 0.0, 1.0);
   float t = smoothstep(uTiming.x + departureCue * uTiming.z,
     uTiming.y - targetAnchor * 0.075, phase);
+  vEdge = clamp(mix(edgeStart,edgeEnd,t),0.0,1.0);
   vec4 transit = uTransit * uMotion;
   // The luminous outer grains scatter farther than the more stable shell.
   transit.x *= mix(0.90, 1.25, uLayer);
@@ -132,7 +139,9 @@ void main() {
     mix(0.08, 1.0, uLayer) + grainDrift;
   livingOffset *= min(1.0, mix(0.012, 0.16, uLayer) /
     max(0.0001, length(livingOffset)));
-  local += livingOffset * uMotion * uModelControls.w * (1.0 - transit.w * 0.38);
+  // Boundary/crease particles anchor the shape at each settled chapter.
+  local += livingOffset * uMotion * uModelControls.w * (1.0 - transit.w * 0.38) *
+    mix(1.0, 0.24, vEdge * (1.0 - transit.w));
 
   // Rock about the current sculpture center, so distant world-space chapters
   // stay framed while the form catches changing blue, amber and white bands.
@@ -171,7 +180,8 @@ void main() {
 
   vec4 view = modelViewMatrix * vec4(p, 1.0);
   vec3 response = vec3(0.0);
-  if (uMotion > 0.5) response = disturbParticles(view, 1.0 + transit.w * 0.40);
+  if (uMotion > 0.5) response = disturbParticles(view,
+    mix(1.0, 0.68, vEdge * (1.0 - transit.w)) + transit.w * 0.40);
   gl_Position = projectionMatrix * view;
   float depth = -view.z;
   float rare = smoothstep(0.970, 0.997, aRandom.x);
@@ -186,14 +196,16 @@ void main() {
   float shimmer = pow(0.5 + 0.5 * sin(life * (0.55 + 2.3 * aRandom.x) +
     aRandom.y * TAU * 3.0), 3.0);
   float naturalTwinkle = mix(0.58, 0.94, pulse) + shimmer * mix(0.035, 0.23, uLayer);
-  vTwinkle = 1.0 + (naturalTwinkle - 1.0) * uTwinkleIntensity;
+  vTwinkle = 1.0 + (naturalTwinkle - 1.0) * uTwinkleIntensity *
+    (1.0 - 0.72 * vEdge);
   float sprite = mix(2.30 + 3.20 * pow(aRandom.y, 1.65),
     4.6 + 9.0 * pow(aRandom.y, 2.0) + rare * 2.4, uLayer);
-  sprite *= 0.86 + 0.24 * vTwinkle;
+  // Denser, smaller and steadier grains read as fine contour strokes.
+  sprite *= (0.86 + 0.24 * vTwinkle) * mix(1.0, 0.84, vEdge);
   float px = sprite * uPixelRatio * projectionScale * (14.0 / max(3.0, depth));
   px += response.x * mix(2.4, 7.5, uLayer) * uPixelRatio;
   gl_PointSize = clamp(px * uModelControls.z * (1.0 + transit.w * 0.10),
-    mix(2.0, 2.8, uLayer) * uPixelRatio * uModelControls.z,
+    mix(mix(2.0, 1.65, vEdge), 2.8, uLayer) * uPixelRatio * uModelControls.z,
     mix(15.0, 26.0, uLayer) * uPixelRatio * uModelControls.z);
 
   vec3 viewNormal = normalize(normalMatrix * normal);

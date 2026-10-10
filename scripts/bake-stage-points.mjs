@@ -3,6 +3,8 @@ import { Matrix4, Quaternion, Vector3 } from 'three';
 import { prepareSurfaceParts, sampleSurfaceParts, transformVertexNormals } from './point-sampling.mjs';
 
 const COUNT = 36000;
+// Float32 xyz, signed normal bytes, material tone and one feature-edge byte.
+const STRIDE = 17;
 const started = performance.now();
 // The mesh only exists locally as an ignored build input; runtime ships points only.
 const buffer=readFileSync('reference/generated-camera-source/approved-models.glb');
@@ -45,8 +47,8 @@ function matrix(n){
 const labels=['Model_Root_Sculpture','Model_Root_Dish70M','Model_Root_Curiosity','Model_Root_Apollo_Lm'];
 const sceneRoots=gltf.scenes[gltf.scene||0].nodes;
 const rootIDs=Object.fromEntries(sceneRoots.map(i=>[gltf.nodes[i].name,i]));
-const out=Buffer.allocUnsafe(16+labels.length*COUNT*16);
-out.write('STG1',0,4,'ascii');out.writeUInt32LE(labels.length,4);out.writeUInt32LE(COUNT,8);out.writeUInt32LE(16,12);
+const out=Buffer.allocUnsafe(16+labels.length*COUNT*STRIDE);
+out.write('STG1',0,4,'ascii');out.writeUInt32LE(labels.length,4);out.writeUInt32LE(COUNT,8);out.writeUInt32LE(STRIDE,12);
 let cursor=16;
 
 for(let group=0;group<labels.length;group++){
@@ -81,24 +83,26 @@ for(let group=0;group<labels.length;group++){
  visit(root,new Matrix4());
  const parts=prepareSurfaceParts(primitives);
  const samples=sampleSurfaceParts(parts,COUNT,39143721+group*1013);
- let toneMin=255,toneMax=0;
- for(const sample of samples){
-   for(let axis=0;axis<3;axis++){
-     if(!Number.isFinite(sample.position[axis]))throw Error('Nonfinite sampled point '+name);
-     out.writeFloatLE(sample.position[axis],cursor+axis*4);
-     out.writeInt8(Math.round(sample.normal[axis]*127),cursor+12+axis);
-   }
-   out.writeUInt8(sample.tone,cursor+15);
-   toneMin=Math.min(toneMin,sample.tone);toneMax=Math.max(toneMax,sample.tone);
-   cursor+=16;
- }
- const center=min.clone().add(max).multiplyScalar(.5);
- console.log(name,JSON.stringify({
-   count:COUNT,sourcePrimitives:primitives.length,connectedParts:parts.length,
-   center:center.toArray().map(x=>+x.toFixed(4)),
-   sourceMin:min.toArray(),sourceMax:max.toArray(),toneRange:[toneMin,toneMax],
-   densityBoostRange:[Math.min(...parts.map(p=>p.weight/p.area)),Math.max(...parts.map(p=>p.weight/p.area))].map(x=>+x.toFixed(3)),
- }));
+  let toneMin=255,toneMax=0,edgeCount=0;
+  for(const sample of samples){
+    for(let axis=0;axis<3;axis++){
+      if(!Number.isFinite(sample.position[axis]))throw Error('Nonfinite sampled point '+name);
+      out.writeFloatLE(sample.position[axis],cursor+axis*4);
+      out.writeInt8(Math.round(sample.normal[axis]*127),cursor+12+axis);
+    }
+    out.writeUInt8(sample.tone,cursor+15);
+    out.writeUInt8(Math.round(sample.edge*255),cursor+16);
+    toneMin=Math.min(toneMin,sample.tone);toneMax=Math.max(toneMax,sample.tone);
+    if(sample.edge>0)edgeCount++;
+    cursor+=STRIDE;
+  }
+  const center=min.clone().add(max).multiplyScalar(.5);
+  console.log(name,JSON.stringify({
+    count:COUNT,edgePoints:edgeCount,sourcePrimitives:primitives.length,connectedParts:parts.length,
+    center:center.toArray().map(x=>+x.toFixed(4)),
+    sourceMin:min.toArray(),sourceMax:max.toArray(),toneRange:[toneMin,toneMax],
+    densityBoostRange:[Math.min(...parts.map(p=>p.weight/p.area)),Math.max(...parts.map(p=>p.weight/p.area))].map(x=>+x.toFixed(3)),
+  }));
 }
 if(cursor!==out.length)throw Error('Unexpected position end');
 // Camera and original model-bounds are authoritative and deliberately read-only.

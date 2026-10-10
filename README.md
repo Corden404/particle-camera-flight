@@ -48,7 +48,7 @@ Original ZIP, BLEND and video sources remain under ignored `模型/camera_flight
 | --- | --- |
 | `reference/generated-camera-source/approved-models.glb` | Ignored offline geometry for sampling; never rendered or downloaded by the webpage |
 | `public/scene/camera-path.json` | Unmodified 361 camera samples at 24 FPS across 15 seconds |
-| `public/scene/surface-points.bin` | Four poses of 36,000 sampled points: position, normal and regional tone |
+| `public/scene/surface-points.bin` | Four poses of 36,000 sampled points: position, normal, regional tone, and 1-byte structural edge strength |
 | `public/scene/model-bounds.json` | Original model centers and bounds |
 | `public/scene/ASSET_CREDITS.txt` | Model attribution and usage notes |
 
@@ -67,7 +67,7 @@ node scripts/bake-stage-points.mjs
 npm run test:assets
 ```
 
-The baker allocates the exact point budget across connected surface components. Visible small parts have minimum quotas before area weighting, and 24% of each populated component's dots trace real boundary or sharp-crease edges. Seeded stratified/Halton sampling, interpolated transformed normals and coherent component/material tones preserve repeatability. Rebaking points does not rewrite the approved camera or bounds.
+The baker allocates the exact point budget across connected surface components. Visible small parts have minimum quotas before area weighting, and roughly 32% of each populated component's dots trace real boundary or sharp-crease edges. These tagged points are stored in a 17-byte record and independently rendered as smaller, less mobile, brighter edge grains, without adding wireframe geometry. Seeded stratified/Halton sampling, interpolated transformed normals and coherent component/material tones preserve repeatability. Rebaking points does not rewrite the approved camera or bounds.
 
 ## Composition and artistic controls
 

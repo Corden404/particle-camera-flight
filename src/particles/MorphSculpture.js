@@ -9,7 +9,7 @@ import { sampleChapterPalette, sampleLegEnvelope, viewportModelScale } from './a
 // Runtime correspondence is spatially sorted per model and then equally shuffled.
 // No original mesh or GLB is ever downloaded or rendered.
 const ROOTS = 4;
-const STRIDE = 16;
+const STRIDE = 17;
 
 function randomGenerator() {
   let state = 0xC0FFEE;
@@ -34,6 +34,7 @@ function decodeSurfaces(buffer) {
   for (let stage = 0; stage < ROOTS; stage++) {
     const position = new Float32Array(count * 3);
     const shade = new Float32Array(count * 4);
+    const edge = new Float32Array(count);
     let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
     for (let index = 0; index < count; index++) {
@@ -54,10 +55,11 @@ function decodeSurfaces(buffer) {
       shade[s + 2] = view.getInt8(offset + 14) / 127;
       // A continuous material/structure code, not an integer part identifier.
       shade[s + 3] = view.getUint8(offset + 15) / 255;
+      edge[index] = view.getUint8(offset + 16) / 255;
     }
     const center = new THREE.Vector3((minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5);
     const span = new THREE.Vector3(maxX - minX, maxY - minY, maxZ - minZ);
-    poses.push({ position, shade, center, span });
+    poses.push({ position, shade, edge, center, span });
   }
   return { poses, count };
 }
@@ -104,6 +106,8 @@ function buildAlignedAttributes(decoded) {
   }
   const positions = poses.map(() => new Float32Array(count * 3));
   const shades = poses.map(() => new Float32Array(count * 4));
+  // Pack all four chapter-specific edge strengths into one GPU attribute.
+  const edges = new Float32Array(count * ROOTS);
   const misc = new Float32Array(count * 2);
   for (let i = 0; i < count; i++) {
     const rank = permutation[i];
@@ -119,11 +123,12 @@ function buildAlignedAttributes(decoded) {
         shades[stage][targetShade + axis] = sourcePose.shade[sourceShade + axis];
       }
       shades[stage][targetShade + 3] = sourcePose.shade[sourceShade + 3];
+      edges[i * ROOTS + stage] = sourcePose.edge[sourceIndex];
     }
     misc[i * 2] = random();
     misc[i * 2 + 1] = random();
   }
-  return { positions, shades, misc };
+  return { positions, shades, edges, misc };
 }
 
 export async function createMorphSculpture(renderer) {
@@ -141,6 +146,7 @@ export async function createMorphSculpture(renderer) {
   for (let stage = 0; stage < ROOTS; stage++) {
     geometry.setAttribute('aShade' + stage, new THREE.BufferAttribute(attrs.shades[stage], 4));
   }
+  geometry.setAttribute('aEdges', new THREE.BufferAttribute(attrs.edges, ROOTS));
   geometry.setAttribute('aRandom', new THREE.BufferAttribute(attrs.misc, 2));
 
   const art = sampleLegEnvelope(0, 0);
