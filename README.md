@@ -20,6 +20,14 @@ npm run preview
 
 The current verification environment uses Node.js 24. The build has relative asset URLs (`base: './'`) and writes to `dist/`.
 
+## GitHub Pages
+
+Public website: https://corden404.github.io/particle-camera-flight/
+
+The [deployment workflow](.github/workflows/deploy-pages.yml) runs on pushes to `main` (or by manual workflow dispatch). It installs dependencies with Node.js 24, runs tests, builds the Vite site, and publishes only `dist/` to GitHub Pages. Repository Pages settings must use **GitHub Actions** as the build source.
+
+Vite uses `base: './'` so scripts and derived scene assets resolve correctly beneath the `/particle-camera-flight/` project path. Private source archives in `模型/` and local reference files are not part of the deployment.
+
 ## Navigation and content
 
 The sequence is **sculpture → NASA 70m antenna → Curiosity rover → Apollo Lunar Module**. Every complete adjacent camera leg lasts five seconds; reverse travel follows the same exported route backwards. A direct menu jump across multiple chapters takes five seconds per crossed leg.
